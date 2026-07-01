@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Datos
+data/
+
+# Modelos entrenados
+models/
+
+# Entorno virtual
+.venv/
+
+# Caché de Python
+__pycache__/
+*.pyc
