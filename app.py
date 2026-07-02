@@ -11,6 +11,7 @@ APP_TITLE = "Idealista Smart Advisor"
 FEATURE_VALUATION = "Valorar una vivienda"
 FEATURE_COMPARISON = "Comparar una vivienda con el barrio"
 FEATURE_NEIGHBORHOOD = "Analizar un barrio"
+FEATURE_CHAT = "Chat Smart Advisor"
 
 
 def get_agent() -> SmartAdvisorAgent:
@@ -99,8 +100,67 @@ def show_valuation_result(data: dict[str, Any]) -> None:
         st.json(data["input"])
 
 
+def show_neighborhood_comparison(data: dict[str, Any]) -> None:
+    """Render neighborhood comparison results returned by the agent."""
+    first = data["first_neighborhood"]
+    second = data["second_neighborhood"]
+    price_difference = data["average_price_difference"]
+    unit_price_difference = data["average_unit_price_difference"]
+
+    st.subheader("Comparacion de barrios")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(f"### {first['neighborhood']}")
+        st.metric("Precio medio", format_currency(first["average_price"]))
+        st.metric("Precio medio por m2", format_currency(first["average_unit_price"]))
+        st.metric("Viviendas analizadas", f"{first['property_count']:,}".replace(",", "."))
+
+    with col2:
+        st.markdown(f"### {second['neighborhood']}")
+        st.metric("Precio medio", format_currency(second["average_price"]))
+        st.metric("Precio medio por m2", format_currency(second["average_unit_price"]))
+        st.metric("Viviendas analizadas", f"{second['property_count']:,}".replace(",", "."))
+
+    st.info(
+        "Diferencia de precio medio: "
+        f"{format_currency(price_difference['absolute_difference'])} "
+        f"({format_percent(price_difference['percentage_difference'])}). "
+        "Diferencia de precio por m2: "
+        f"{format_currency(unit_price_difference['absolute_difference'])} "
+        f"({format_percent(unit_price_difference['percentage_difference'])})."
+    )
+
+
+def show_budget_recommendations(data: dict[str, Any]) -> None:
+    """Render budget recommendation results returned by the agent."""
+    st.subheader("Barrios recomendados por presupuesto")
+    st.metric("Presupuesto", format_currency(data["budget"]))
+
+    recommendations = data.get("recommendations", [])
+    if not recommendations:
+        st.warning("No se han encontrado barrios compatibles con ese presupuesto.")
+        return
+
+    for recommendation in recommendations:
+        with st.container(border=True):
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Barrio", recommendation["neighborhood"])
+            col2.metric("Precio medio", format_currency(recommendation["average_price"]))
+            col3.metric("Margen vs presupuesto", format_currency(recommendation["budget_gap"]))
+            st.caption(
+                f"{recommendation['property_count']} viviendas analizadas | "
+                f"{format_currency(recommendation['average_unit_price'])}/m2 | "
+                f"superficie media {recommendation['average_area']:.2f} m2"
+            )
+
+
 def render_response(response: dict[str, Any]) -> None:
     """Render a structured response from SmartAdvisorAgent."""
+    message = response.get("message")
+    if message:
+        st.write(message)
+
     if not response.get("success"):
         show_error(response.get("error"))
         return
@@ -110,8 +170,14 @@ def render_response(response: dict[str, Any]) -> None:
 
     if intent == "neighborhood_stats":
         show_neighborhood_stats(data)
+    elif intent == "neighborhood_analysis":
+        show_neighborhood_stats(data)
     elif intent == "property_comparison":
         show_property_comparison(data)
+    elif intent == "neighborhood_comparison":
+        show_neighborhood_comparison(data)
+    elif intent == "budget_recommendation":
+        show_budget_recommendations(data)
     elif intent == "valuation":
         show_valuation_result(data)
     else:
@@ -182,6 +248,48 @@ def render_neighborhood_form(agent: SmartAdvisorAgent) -> None:
         render_response(agent.process_request(request))
 
 
+def render_chat_mode(agent: SmartAdvisorAgent) -> None:
+    """Render a natural-language interaction mode."""
+    st.subheader("Chat Smart Advisor")
+    st.write(
+        "Escribe una consulta inmobiliaria en lenguaje natural. "
+        "El agente interpretara la intencion y usara el backend del MVP."
+    )
+
+    st.markdown("Ejemplos:")
+    st.code(
+        "\n".join(
+            [
+                "Valora una vivienda en Palacio de 80 m2 con 2 habitaciones y 1 baño con ascensor",
+                "Analiza el barrio Palacio",
+                "Compara Palacio y Sol",
+                "Tengo 300000 euros, ¿en qué barrios puedo comprar?",
+            ]
+        ),
+        language="text",
+    )
+
+    with st.form("chat_form"):
+        message = st.text_area(
+            "Consulta",
+            placeholder="Ej. Analiza el barrio Palacio",
+            height=120,
+        )
+        submitted = st.form_submit_button("Analizar", use_container_width=True)
+
+    if submitted:
+        if not message.strip():
+            st.warning("Escribe una consulta para que pueda ayudarte.")
+            return
+
+        response = agent.process_message(message)
+        st.subheader("Respuesta")
+        render_response(response)
+
+        with st.expander("Ver respuesta estructurada"):
+            st.json(response)
+
+
 def main() -> None:
     """Run the Streamlit application."""
     st.set_page_config(
@@ -199,6 +307,7 @@ def main() -> None:
         selected_feature = st.radio(
             "Funcionalidad",
             [
+                FEATURE_CHAT,
                 FEATURE_VALUATION,
                 FEATURE_COMPARISON,
                 FEATURE_NEIGHBORHOOD,
@@ -218,7 +327,9 @@ def main() -> None:
 
     st.divider()
 
-    if selected_feature == FEATURE_VALUATION:
+    if selected_feature == FEATURE_CHAT:
+        render_chat_mode(agent)
+    elif selected_feature == FEATURE_VALUATION:
         render_valuation_form(agent)
     elif selected_feature == FEATURE_COMPARISON:
         render_comparison_form(agent)

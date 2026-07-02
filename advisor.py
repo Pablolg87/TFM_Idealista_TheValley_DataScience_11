@@ -156,3 +156,82 @@ def compare_property_with_neighborhood(
         "classification": classification,
         "neighborhood_stats": stats,
     }
+
+
+def compare_neighborhoods(
+    first_neighborhood: str,
+    second_neighborhood: str,
+    dataset: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    """Compare two neighborhoods using the same market statistics."""
+    dataset = dataset if dataset is not None else load_dataset()
+    first_stats = get_neighborhood_stats(first_neighborhood, dataset)
+    second_stats = get_neighborhood_stats(second_neighborhood, dataset)
+    price_difference = calculate_difference(
+        property_price=first_stats["average_price"],
+        reference_price=second_stats["average_price"],
+    )
+    unit_price_difference = calculate_difference(
+        property_price=first_stats["average_unit_price"],
+        reference_price=second_stats["average_unit_price"],
+    )
+
+    return {
+        "first_neighborhood": first_stats,
+        "second_neighborhood": second_stats,
+        "average_price_difference": price_difference,
+        "average_unit_price_difference": unit_price_difference,
+    }
+
+
+def recommend_neighborhoods_by_budget(
+    budget: float,
+    dataset: pd.DataFrame | None = None,
+    max_results: int = 5,
+) -> dict[str, Any]:
+    """Recommend neighborhoods whose average price fits a given budget."""
+    dataset = dataset if dataset is not None else load_dataset()
+    _validate_columns(
+        dataset,
+        [NEIGHBORHOOD_COLUMN, PRICE_COLUMN, UNIT_PRICE_COLUMN, AREA_COLUMN],
+    )
+
+    if budget <= 0:
+        raise ValueError("Budget must be greater than zero.")
+
+    grouped = (
+        dataset.groupby(NEIGHBORHOOD_COLUMN)
+        .agg(
+            property_count=(PRICE_COLUMN, "size"),
+            average_price=(PRICE_COLUMN, "mean"),
+            median_price=(PRICE_COLUMN, "median"),
+            average_unit_price=(UNIT_PRICE_COLUMN, "mean"),
+            average_area=(AREA_COLUMN, "mean"),
+        )
+        .reset_index()
+    )
+    candidates = grouped[grouped["average_price"] <= float(budget)].copy()
+    candidates["budget_gap"] = float(budget) - candidates["average_price"]
+    candidates = candidates.sort_values(
+        by=["budget_gap", "property_count"],
+        ascending=[True, False],
+    ).head(max_results)
+
+    recommendations = [
+        {
+            "neighborhood": str(row[NEIGHBORHOOD_COLUMN]),
+            "property_count": int(row["property_count"]),
+            "average_price": float(row["average_price"]),
+            "median_price": float(row["median_price"]),
+            "average_unit_price": float(row["average_unit_price"]),
+            "average_area": float(row["average_area"]),
+            "budget_gap": float(row["budget_gap"]),
+        }
+        for _, row in candidates.iterrows()
+    ]
+
+    return {
+        "budget": float(budget),
+        "recommendations": recommendations,
+        "result_count": len(recommendations),
+    }
