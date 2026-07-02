@@ -17,7 +17,7 @@ DEFAULT_DATASET_PATH = Path(__file__).resolve().parent / "data" / "dataset.csv"
 DATASET_PATH = getattr(config, "DATASET_PATH", DEFAULT_DATASET_PATH)
 
 NEIGHBORHOOD_COLUMN = getattr(config, "NEIGHBORHOOD_COLUMN", "LOCATIONNAME")
-PRICE_COLUMN = getattr(config, "TARGET_COLUMN", "PRICE")
+PRICE_COLUMN = getattr(config, "PRICE_COLUMN", "PRICE")
 UNIT_PRICE_COLUMN = getattr(config, "UNIT_PRICE_COLUMN", "UNITPRICE")
 AREA_COLUMN = getattr(config, "AREA_COLUMN", "CONSTRUCTEDAREA")
 

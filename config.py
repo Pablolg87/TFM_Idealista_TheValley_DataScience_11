@@ -21,15 +21,28 @@ FEATURE_COLUMNS_PATH = MODELS_DIR / "feature_columns.pkl"
 
 # Dataset columns
 PRICE_COLUMN = "PRICE"
-LOG_PRICE_TARGET_COLUMN = "LOG_PRICE"
+TARGET_COLUMN = "LOG_PRICE"
 NEIGHBORHOOD_COLUMN = "LOCATIONNAME"
 UNIT_PRICE_COLUMN = "UNITPRICE"
 AREA_COLUMN = "CONSTRUCTEDAREA"
+ROOMS_COLUMN = "ROOMNUMBER"
+BATHROOMS_COLUMN = "BATHNUMBER"
+HAS_LIFT_COLUMN = "HASLIFT"
+HAS_TERRACE_COLUMN = "HASTERRACE"
+HAS_PARKING_COLUMN = "HASPARKINGSPACE"
 
 
-# Backward-compatible name used by the real estate analysis layer.
-# advisor.py works with real prices, not with the model target.
-TARGET_COLUMN = PRICE_COLUMN
+# MVP model input contract. These are the only variables expected by predict.py
+# through models/feature_columns.pkl for the provisional demo model.
+MVP_FEATURE_COLUMNS = [
+    NEIGHBORHOOD_COLUMN,
+    AREA_COLUMN,
+    ROOMS_COLUMN,
+    BATHROOMS_COLUMN,
+    HAS_LIFT_COLUMN,
+    HAS_TERRACE_COLUMN,
+    HAS_PARKING_COLUMN,
+]
 
 
 # Training configuration

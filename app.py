@@ -127,7 +127,9 @@ def render_valuation_form(agent: SmartAdvisorAgent) -> None:
         area = st.number_input("Superficie construida (m2)", min_value=1.0, step=1.0)
         rooms = st.number_input("Habitaciones", min_value=0, step=1)
         bathrooms = st.number_input("Banos", min_value=0, step=1)
-        quality = st.number_input("Calidad catastral", min_value=0.0, step=1.0)
+        has_lift = st.checkbox("Tiene ascensor")
+        has_terrace = st.checkbox("Tiene terraza")
+        has_parking = st.checkbox("Tiene plaza de garaje")
         submitted = st.form_submit_button("Analizar", use_container_width=True)
 
     if submitted:
@@ -137,7 +139,9 @@ def render_valuation_form(agent: SmartAdvisorAgent) -> None:
             "CONSTRUCTEDAREA": area,
             "ROOMNUMBER": rooms,
             "BATHNUMBER": bathrooms,
-            "CADASTRALQUALITYID": quality,
+            "HASLIFT": int(has_lift),
+            "HASTERRACE": int(has_terrace),
+            "HASPARKINGSPACE": int(has_parking),
         }
         render_response(agent.process_request(request))
 
