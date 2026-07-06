@@ -5,6 +5,8 @@ property price comparison. It does not include Streamlit code, charts, or
 conversational logic.
 """
 
+import difflib
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -235,3 +237,144 @@ def recommend_neighborhoods_by_budget(
         "recommendations": recommendations,
         "result_count": len(recommendations),
     }
+
+
+def get_neighborhood_intelligence(
+    neighborhood: str,
+    dataset: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    """Return dataset-derived market intelligence for a neighborhood."""
+    dataset = dataset if dataset is not None else load_dataset()
+    required_columns = [
+        NEIGHBORHOOD_COLUMN,
+        PRICE_COLUMN,
+        UNIT_PRICE_COLUMN,
+        getattr(config, "DISTANCE_TO_CITY_CENTER_COLUMN", "DISTANCE_TO_CITY_CENTER"),
+        getattr(config, "DISTANCE_TO_CASTELLANA_COLUMN", "DISTANCE_TO_CASTELLANA"),
+        getattr(config, "DISTANCE_TO_METRO_COLUMN", "DISTANCE_TO_METRO"),
+        getattr(config, "MEAN_UNITPRICE_BY_LOCATION_COLUMN", "MEAN_UNITPRICE_BY_LOCATION"),
+    ]
+    _validate_columns(dataset, required_columns)
+    neighborhood_data = filter_neighborhood(dataset, neighborhood)
+
+    madrid_average_unit_price = float(dataset[UNIT_PRICE_COLUMN].mean())
+    neighborhood_average_unit_price = float(neighborhood_data[UNIT_PRICE_COLUMN].mean())
+    relative_price_percent = calculate_difference(
+        property_price=neighborhood_average_unit_price,
+        reference_price=madrid_average_unit_price,
+    )["percentage_difference"]
+
+    if relative_price_percent >= 15:
+        relative_price_level = "Alto"
+    elif relative_price_percent <= -15:
+        relative_price_level = "Bajo"
+    else:
+        relative_price_level = "Medio"
+
+    return {
+        "neighborhood": neighborhood,
+        "average_price": float(neighborhood_data[PRICE_COLUMN].mean()),
+        "average_unit_price": neighborhood_average_unit_price,
+        "madrid_average_unit_price": madrid_average_unit_price,
+        "relative_price_percent": float(relative_price_percent),
+        "relative_price_level": relative_price_level,
+        "distance_to_city_center": float(
+            neighborhood_data[config.DISTANCE_TO_CITY_CENTER_COLUMN].mean()
+        ),
+        "distance_to_castellana": float(
+            neighborhood_data[config.DISTANCE_TO_CASTELLANA_COLUMN].mean()
+        ),
+        "distance_to_metro": float(
+            neighborhood_data[config.DISTANCE_TO_METRO_COLUMN].mean()
+        ),
+        "mean_unitprice_by_location": float(
+            neighborhood_data[config.MEAN_UNITPRICE_BY_LOCATION_COLUMN].mean()
+        ),
+        "property_count": int(len(neighborhood_data)),
+    }
+
+
+def get_demo_property(dataset: pd.DataFrame | None = None) -> dict[str, Any]:
+    """Return one real dataset row compatible with the valuation form."""
+    dataset = dataset if dataset is not None else load_dataset()
+    required_columns = list(config.USER_INPUT_FEATURE_COLUMNS) + [PRICE_COLUMN]
+    _validate_columns(dataset, required_columns)
+
+    clean_dataset = dataset.dropna(subset=required_columns).copy()
+    if clean_dataset.empty:
+        raise ValueError("No demo property available with complete input data.")
+
+    row = clean_dataset.sort_values(PRICE_COLUMN).iloc[len(clean_dataset) // 2]
+    input_data = {
+        config.NEIGHBORHOOD_COLUMN: str(row[config.NEIGHBORHOOD_COLUMN]),
+        config.AREA_COLUMN: float(row[config.AREA_COLUMN]),
+        config.ROOMS_COLUMN: int(row[config.ROOMS_COLUMN]),
+        config.BATHROOMS_COLUMN: int(row[config.BATHROOMS_COLUMN]),
+        config.HAS_TERRACE_COLUMN: int(row[config.HAS_TERRACE_COLUMN]),
+        config.HAS_LIFT_COLUMN: int(row[config.HAS_LIFT_COLUMN]),
+        config.HAS_AIR_CONDITIONING_COLUMN: int(row[config.HAS_AIR_CONDITIONING_COLUMN]),
+        config.HAS_PARKING_COLUMN: int(row[config.HAS_PARKING_COLUMN]),
+        config.HAS_BOXROOM_COLUMN: int(row[config.HAS_BOXROOM_COLUMN]),
+        config.HAS_SWIMMING_POOL_COLUMN: int(row[config.HAS_SWIMMING_POOL_COLUMN]),
+    }
+
+    return {
+        "input": input_data,
+        "actual_price": float(row[PRICE_COLUMN]),
+        "actual_unit_price": float(row[UNIT_PRICE_COLUMN]) if UNIT_PRICE_COLUMN in row else None,
+    }
+
+
+
+def _normalize_for_matching(value: str) -> str:
+    """Normalize text for accent-insensitive neighborhood suggestions."""
+    normalized = unicodedata.normalize("NFKD", str(value).casefold().strip())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def suggest_neighborhoods(
+    query: str,
+    dataset: pd.DataFrame | None = None,
+    max_results: int = 6,
+) -> list[str]:
+    """Suggest available LOCATIONNAME values for a non-exact user query."""
+    dataset = dataset if dataset is not None else load_dataset()
+    _validate_columns(dataset, [NEIGHBORHOOD_COLUMN])
+
+    values = sorted(dataset[NEIGHBORHOOD_COLUMN].dropna().astype(str).unique())
+    normalized_values = {value: _normalize_for_matching(value) for value in values}
+    normalized_query = _normalize_for_matching(query)
+
+    district_hints = {
+        "hortaleza": ["Canillas", "Pinar del Rey", "Conde Orgaz-Piovera", "Palomas", "Sanchinarro", "Virgen del Cortijo - Manoteras"],
+        "chamartin": ["Castilla", "Nueva España", "El Viso", "Prosperidad", "Ciudad Jardín", "Bernabéu-Hispanoamérica"],
+        "chamartín": ["Castilla", "Nueva España", "El Viso", "Prosperidad", "Ciudad Jardín", "Bernabéu-Hispanoamérica"],
+        "salamanca": ["Castellana", "Goya", "Lista", "Recoletos", "Fuente del Berro", "Guindalera"],
+        "centro": ["Palacio", "Sol", "Chueca-Justicia", "Huertas-Cortes", "Lavapiés-Embajadores", "Malasaña-Universidad"],
+    }
+    hinted = [value for value in district_hints.get(normalized_query, []) if value in values]
+    if hinted:
+        return hinted[:max_results]
+
+    contains = [
+        value
+        for value, normalized_value in normalized_values.items()
+        if normalized_query and normalized_query in normalized_value
+    ]
+    if contains:
+        return contains[:max_results]
+
+    close_normalized = difflib.get_close_matches(
+        normalized_query,
+        list(normalized_values.values()),
+        n=max_results,
+        cutoff=0.55,
+    )
+    suggestions: list[str] = []
+    for close_match in close_normalized:
+        for value, normalized_value in normalized_values.items():
+            if normalized_value == close_match and value not in suggestions:
+                suggestions.append(value)
+                break
+
+    return suggestions[:max_results]

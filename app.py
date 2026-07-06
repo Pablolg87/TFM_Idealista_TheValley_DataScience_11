@@ -1,1221 +1,1056 @@
-"""Premium Streamlit interface for the Smart Advisor MVP."""
+"""Definitive Streamlit MVP for AI Real Estate Advisor.
 
-from datetime import date
+This app intentionally uses native Streamlit components only. It does not use
+custom HTML, custom CSS, external APIs, or generative AI services.
+"""
+
+import re
+import unicodedata
+from pathlib import Path
 from typing import Any
 
+import altair as alt
+import joblib
+import numpy as np
+import pandas as pd
 import streamlit as st
 
-from agent import SmartAdvisorAgent
 
-
-APP_TITLE = "Idealista Smart Advisor"
-FEATURE_VALUATION = "Property Valuation"
-FEATURE_COMPARISON = "Compare With Neighborhood"
-FEATURE_NEIGHBORHOOD = "Neighborhood Intelligence"
-FEATURE_CHAT = "Chat Smart Advisor"
-
-
-def get_agent() -> SmartAdvisorAgent:
-    """Create or reuse the Smart Advisor agent."""
-    if "agent" not in st.session_state:
-        st.session_state.agent = SmartAdvisorAgent()
-
-    return st.session_state.agent
-
-
-def format_currency(value: float) -> str:
-    """Format numeric values as euros for display."""
-    return f"€ {value:,.0f}".replace(",", ".")
-
-
-def format_percent(value: float) -> str:
-    """Format percentage values for display."""
-    return f"{value:.2f}%"
-
-
-def inject_css() -> None:
-    """Inject the custom visual system."""
-    st.markdown(
-        """
-        <style>
-        :root {
-            --bg: #FFFFFF;
-            --panel: #F7F8FA;
-            --ink: #171717;
-            --muted: #667085;
-            --line: #E7E9EE;
-            --accent: #FFF15A;
-            --accent-soft: #FFFBD1;
-            --ai: #EEF6FF;
-            --ai-border: #CFE5FF;
-            --shadow: 0 18px 50px rgba(16, 24, 40, 0.08);
-            --radius: 8px;
-        }
-
-        html, body, [data-testid="stAppViewContainer"] {
-            background: var(--bg);
-            color: var(--ink);
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system,
-                BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }
-
-        [data-testid="stHeader"] {
-            background: rgba(255, 255, 255, 0);
-        }
-
-        [data-testid="stSidebar"] {
-            background: #FFFFFF;
-            border-right: 1px solid var(--line);
-        }
-
-        .block-container {
-            max-width: 1240px;
-            padding-top: 32px;
-            padding-bottom: 56px;
-        }
-
-        h1, h2, h3 {
-            letter-spacing: 0;
-            color: var(--ink);
-        }
-
-        .hero {
-            padding: 28px 0 24px 0;
-            border-bottom: 1px solid var(--line);
-            margin-bottom: 28px;
-        }
-
-        .brand-row {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            margin-bottom: 18px;
-        }
-
-        .brand-mark {
-            width: 42px;
-            height: 42px;
-            border-radius: 8px;
-            background: var(--accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #111111;
-            font-weight: 900;
-            box-shadow: 0 10px 26px rgba(255, 241, 90, 0.35);
-        }
-
-        .brand-copy {
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.2;
-        }
-
-        .hero-title {
-            font-size: 46px;
-            line-height: 1.03;
-            font-weight: 780;
-            margin: 0;
-        }
-
-        .hero-subtitle {
-            color: var(--muted);
-            font-size: 18px;
-            margin-top: 12px;
-            max-width: 740px;
-        }
-
-        .card {
-            background: #FFFFFF;
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 24px;
-            margin-bottom: 18px;
-        }
-
-        .soft-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-
-        .card-title {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 18px;
-        }
-
-        .eyebrow {
-            color: var(--muted);
-            font-size: 12px;
-            text-transform: uppercase;
-            font-weight: 760;
-            letter-spacing: .08em;
-        }
-
-        .section-title {
-            font-size: 22px;
-            font-weight: 760;
-            margin: 0;
-        }
-
-        .field-group {
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 14px 14px 4px 14px;
-            margin-bottom: 14px;
-            background: #FFFFFF;
-        }
-
-        .field-label {
-            color: var(--muted);
-            font-size: 13px;
-            font-weight: 700;
-            margin-bottom: 6px;
-        }
-
-        .result-price {
-            font-size: 48px;
-            line-height: 1;
-            font-weight: 820;
-            color: var(--ink);
-            margin: 8px 0 10px 0;
-        }
-
-        .result-hero {
-            background:
-                linear-gradient(135deg, rgba(255, 241, 90, 0.22) 0%, rgba(255,255,255,0) 42%),
-                #FFFFFF;
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 34px;
-            margin: 28px 0;
-            text-align: center;
-        }
-
-        .hero-price {
-            font-size: 68px;
-            line-height: 1;
-            font-weight: 850;
-            color: var(--ink);
-            margin: 14px 0 16px 0;
-        }
-
-        .valuation-date {
-            color: var(--muted);
-            font-size: 13px;
-            margin-top: 8px;
-        }
-
-        .result-caption {
-            color: var(--muted);
-            font-size: 14px;
-        }
-
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
-            margin-top: 22px;
-        }
-
-        .kpi-grid-wide {
-            display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 12px;
-            margin-top: 26px;
-        }
-
-        .kpi-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 16px;
-        }
-
-        .kpi-label {
-            color: var(--muted);
-            font-size: 12px;
-            font-weight: 720;
-            text-transform: uppercase;
-            letter-spacing: .06em;
-        }
-
-        .kpi-value {
-            color: var(--ink);
-            font-size: 22px;
-            font-weight: 760;
-            margin-top: 8px;
-        }
-
-        .summary-card {
-            background: #FFFFFF;
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 24px;
-            margin: 22px 0;
-        }
-
-        .summary-text {
-            color: #344054;
-            font-size: 17px;
-            line-height: 1.65;
-            margin-top: 10px;
-        }
-
-        .insight-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 14px;
-            margin-top: 18px;
-        }
-
-        .insight-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 18px;
-        }
-
-        .insight-value {
-            font-size: 24px;
-            font-weight: 780;
-            color: var(--ink);
-            margin-top: 8px;
-        }
-
-        .ai-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid var(--ai-border);
-            background: var(--ai);
-            border-radius: 999px;
-            color: #175CD3;
-            font-size: 13px;
-            font-weight: 760;
-            padding: 8px 12px;
-        }
-
-        .chat-panel {
-            background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 24px;
-            margin-top: 34px;
-        }
-
-        .advisor-focus {
-            border: 1px solid var(--ai-border);
-            background:
-                linear-gradient(135deg, rgba(238, 246, 255, 0.95) 0%, rgba(255,255,255,1) 42%),
-                #FFFFFF;
-            padding: 30px;
-        }
-
-        .chat-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 12px;
-        }
-
-        .advisor-avatar {
-            width: 38px;
-            height: 38px;
-            border-radius: 999px;
-            background: var(--ai);
-            border: 1px solid var(--ai-border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #175CD3;
-            font-weight: 850;
-        }
-
-        .chat-bubble {
-            border-radius: 8px;
-            padding: 14px 16px;
-            margin: 10px 0;
-            max-width: 860px;
-        }
-
-        .chat-user {
-            background: #111111;
-            color: #FFFFFF;
-            margin-left: auto;
-        }
-
-        .chat-ai {
-            background: var(--ai);
-            border: 1px solid var(--ai-border);
-            color: #111111;
-        }
-
-        .example-chip {
-            display: inline-block;
-            border: 1px solid var(--line);
-            background: #FFFFFF;
-            border-radius: 999px;
-            color: var(--muted);
-            font-size: 13px;
-            padding: 8px 12px;
-            margin: 4px 6px 4px 0;
-        }
-
-        .flow-steps {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-            margin: 4px 0 28px 0;
-        }
-
-        .flow-step {
-            background: #FFFFFF;
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 14px;
-            position: relative;
-        }
-
-        .flow-step.active {
-            border-color: var(--ai-border);
-            background: var(--ai);
-        }
-
-        .flow-step.done {
-            border-color: #E6DB38;
-            background: #FFFDE8;
-        }
-
-        .flow-number {
-            width: 24px;
-            height: 24px;
-            border-radius: 999px;
-            background: var(--panel);
-            color: var(--muted);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            font-weight: 800;
-            margin-bottom: 8px;
-        }
-
-        .flow-step.active .flow-number {
-            background: #175CD3;
-            color: #FFFFFF;
-        }
-
-        .flow-step.done .flow-number {
-            background: var(--accent);
-            color: #111111;
-        }
-
-        .flow-title {
-            font-size: 14px;
-            font-weight: 760;
-            color: var(--ink);
-        }
-
-        .flow-copy {
-            font-size: 12px;
-            color: var(--muted);
-            margin-top: 4px;
-        }
-
-        .suggestion-label {
-            color: var(--muted);
-            font-size: 13px;
-            font-weight: 760;
-            margin: 18px 0 8px 0;
-        }
-
-        .stButton > button,
-        [data-testid="stFormSubmitButton"] button {
-            background: #111111;
-            color: #FFFFFF;
-            border: 0;
-            border-radius: 8px;
-            min-height: 46px;
-            font-weight: 760;
-            transition: all .16s ease;
-        }
-
-        .stButton > button:hover,
-        [data-testid="stFormSubmitButton"] button:hover {
-            background: #000000;
-            transform: translateY(-1px);
-            box-shadow: 0 12px 24px rgba(16, 24, 40, 0.12);
-        }
-
-        div[data-testid="stMetric"] {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 16px;
-        }
-
-        div[data-testid="stMetricLabel"] p {
-            color: var(--muted);
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: .05em;
-            font-weight: 760;
-        }
-
-        input, textarea, [data-baseweb="select"] {
-            border-radius: 8px;
-        }
-
-        @media (max-width: 980px) {
-            .kpi-grid-wide,
-            .insight-grid,
-            .flow-steps {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-
-            .hero-price {
-                font-size: 48px;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_header() -> None:
-    """Render the premium application header."""
-    st.markdown(
-        """
-        <section class="hero">
-            <div class="brand-row">
-                <div class="brand-mark">IA</div>
-                <div>
-                    <div class="eyebrow">AI Real Estate Advisor</div>
-                    <div class="brand-copy">Intelligent Property Valuation powered by Machine Learning</div>
-                </div>
-            </div>
-            <h1 class="hero-title">Idealista Smart Advisor</h1>
-            <p class="hero-subtitle">
-                A premium market intelligence platform for property valuation,
-                neighborhood analytics and AI-assisted real estate decisions.
-            </p>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_flow_steps(current_step: int) -> None:
-    """Render the valuation journey as a visual progress bar."""
-    steps = [
-        ("Input data", "Property features"),
-        ("Valuation", "ML estimate"),
-        ("Market insights", "Dataset context"),
-        ("AI Advisor", "Conversation"),
+BASE_DIR = Path(__file__).resolve().parent
+DATASET_PATH = BASE_DIR / "data" / "dataset.csv"
+MODEL_PACKAGE_PATH = BASE_DIR / "models" / "best_rf_model_package.pkl"
+
+PRICE_COLUMN = "PRICE"
+UNIT_PRICE_COLUMN = "UNITPRICE"
+NEIGHBORHOOD_COLUMN = "LOCATIONNAME"
+AREA_COLUMN = "CONSTRUCTEDAREA"
+LOG_AREA_COLUMN = "LOG_CONSTRUCTEDAREA"
+ROOMS_COLUMN = "ROOMNUMBER"
+BATHROOMS_COLUMN = "BATHNUMBER"
+HAS_TERRACE_COLUMN = "HASTERRACE"
+HAS_LIFT_COLUMN = "HASLIFT"
+HAS_AIR_CONDITIONING_COLUMN = "HASAIRCONDITIONING"
+HAS_PARKING_COLUMN = "HASPARKINGSPACE"
+HAS_BOXROOM_COLUMN = "HASBOXROOM"
+HAS_SWIMMING_POOL_COLUMN = "HASSWIMMINGPOOL"
+DISTANCE_TO_CITY_CENTER_COLUMN = "DISTANCE_TO_CITY_CENTER"
+DISTANCE_TO_CASTELLANA_COLUMN = "DISTANCE_TO_CASTELLANA"
+DISTANCE_TO_METRO_COLUMN = "DISTANCE_TO_METRO"
+MEAN_UNITPRICE_BY_LOCATION_COLUMN = "MEAN_UNITPRICE_BY_LOCATION"
+
+DERIVED_COLUMNS = [
+    DISTANCE_TO_CITY_CENTER_COLUMN,
+    DISTANCE_TO_CASTELLANA_COLUMN,
+    DISTANCE_TO_METRO_COLUMN,
+    MEAN_UNITPRICE_BY_LOCATION_COLUMN,
+]
+
+AMENITY_COLUMNS = [
+    HAS_LIFT_COLUMN,
+    HAS_TERRACE_COLUMN,
+    HAS_AIR_CONDITIONING_COLUMN,
+    HAS_PARKING_COLUMN,
+    HAS_BOXROOM_COLUMN,
+    HAS_SWIMMING_POOL_COLUMN,
+]
+
+REQUIRED_DATASET_COLUMNS = [
+    NEIGHBORHOOD_COLUMN,
+    PRICE_COLUMN,
+    UNIT_PRICE_COLUMN,
+    AREA_COLUMN,
+    ROOMS_COLUMN,
+    BATHROOMS_COLUMN,
+    HAS_TERRACE_COLUMN,
+    HAS_LIFT_COLUMN,
+    HAS_AIR_CONDITIONING_COLUMN,
+    HAS_PARKING_COLUMN,
+    HAS_BOXROOM_COLUMN,
+    HAS_SWIMMING_POOL_COLUMN,
+    DISTANCE_TO_CITY_CENTER_COLUMN,
+    DISTANCE_TO_CASTELLANA_COLUMN,
+    DISTANCE_TO_METRO_COLUMN,
+    MEAN_UNITPRICE_BY_LOCATION_COLUMN,
+]
+
+CONVERSATION_STEPS = [
+    ("neighborhood", "Barrio"),
+    (AREA_COLUMN, "Metros cuadrados construidos"),
+    (ROOMS_COLUMN, "Habitaciones"),
+    (BATHROOMS_COLUMN, "Ba\u00f1os"),
+    (HAS_LIFT_COLUMN, "Ascensor"),
+    (HAS_TERRACE_COLUMN, "Terraza"),
+    (HAS_AIR_CONDITIONING_COLUMN, "Aire acondicionado"),
+    (HAS_PARKING_COLUMN, "Parking"),
+    (HAS_BOXROOM_COLUMN, "Trastero"),
+    (HAS_SWIMMING_POOL_COLUMN, "Piscina"),
+]
+
+
+def load_dataset() -> pd.DataFrame:
+    """Load the cleaned Madrid real estate dataset."""
+    dataset = pd.read_csv(DATASET_PATH)
+    missing_columns = [
+        column for column in REQUIRED_DATASET_COLUMNS if column not in dataset.columns
     ]
-    cards = []
-    for index, (title, copy) in enumerate(steps, start=1):
-        state = "done" if index < current_step else "active" if index == current_step else ""
-        cards.append(
-            f"""
-            <div class="flow-step {state}">
-                <div class="flow-number">{index}</div>
-                <div class="flow-title">{title}</div>
-                <div class="flow-copy">{copy}</div>
-            </div>
-            """
-        )
+    if missing_columns:
+        raise ValueError(f"Missing dataset columns: {missing_columns}")
+    return dataset.dropna(subset=[NEIGHBORHOOD_COLUMN]).copy()
 
-    st.markdown(
-        f'<div class="flow-steps">{"".join(cards)}</div>',
-        unsafe_allow_html=True,
+
+def load_model_package() -> dict[str, Any]:
+    """Load the definitive Random Forest package."""
+    package = joblib.load(MODEL_PACKAGE_PATH)
+    if not isinstance(package, dict):
+        raise TypeError("Model package must be a dictionary.")
+    for key in ("model", "features", "metrics"):
+        if key not in package:
+            raise ValueError(f"Model package missing key: {key}")
+    return package
+
+
+def get_neighborhoods(dataset: pd.DataFrame) -> list[str]:
+    """Return sorted neighborhood values from LOCATIONNAME."""
+    return sorted(dataset[NEIGHBORHOOD_COLUMN].dropna().astype(str).unique())
+
+
+def get_neighborhood_rows(dataset: pd.DataFrame, neighborhood: str) -> pd.DataFrame:
+    """Return dataset rows for a selected neighborhood."""
+    rows = dataset[dataset[NEIGHBORHOOD_COLUMN].astype(str).eq(str(neighborhood))]
+    if rows.empty:
+        raise ValueError(f"Neighborhood not found: {neighborhood}")
+    return rows.copy()
+
+
+def numeric_mean(rows: pd.DataFrame, column: str) -> float:
+    """Calculate a robust numeric mean for a column."""
+    value = pd.to_numeric(rows[column], errors="coerce").mean()
+    if pd.isna(value):
+        raise ValueError(f"Cannot calculate mean for column: {column}")
+    return float(value)
+
+
+def numeric_median(rows: pd.DataFrame, column: str) -> float:
+    """Calculate a robust numeric median for a column."""
+    value = pd.to_numeric(rows[column], errors="coerce").median()
+    if pd.isna(value):
+        raise ValueError(f"Cannot calculate median for column: {column}")
+    return float(value)
+
+
+def format_euros(value: float) -> str:
+    """Format a number as euros using Spanish thousands separators."""
+    return f"{value:,.0f} \u20ac".replace(",", ".")
+
+
+def format_euros_per_m2(value: float) -> str:
+    """Format a number as euros per square meter."""
+    return f"{value:,.0f} \u20ac/m\u00b2".replace(",", ".")
+
+
+def model_features(package: dict[str, Any]) -> list[str]:
+    """Return feature names stored in the model package."""
+    return [str(feature) for feature in package["features"]]
+
+
+def build_model_input(
+    features: list[str],
+    dataset: pd.DataFrame,
+    neighborhood: str,
+    property_input: dict[str, Any],
+) -> pd.DataFrame:
+    """Build the single-row input expected by the Random Forest."""
+    rows = get_neighborhood_rows(dataset, neighborhood)
+    area = float(property_input[AREA_COLUMN])
+    if area <= 0:
+        raise ValueError("Constructed area must be greater than zero.")
+
+    values = {
+        LOG_AREA_COLUMN: float(np.log1p(area)),
+        ROOMS_COLUMN: int(property_input[ROOMS_COLUMN]),
+        BATHROOMS_COLUMN: int(property_input[BATHROOMS_COLUMN]),
+        HAS_TERRACE_COLUMN: int(property_input[HAS_TERRACE_COLUMN]),
+        HAS_LIFT_COLUMN: int(property_input[HAS_LIFT_COLUMN]),
+        HAS_AIR_CONDITIONING_COLUMN: int(property_input[HAS_AIR_CONDITIONING_COLUMN]),
+        HAS_PARKING_COLUMN: int(property_input[HAS_PARKING_COLUMN]),
+        HAS_BOXROOM_COLUMN: int(property_input[HAS_BOXROOM_COLUMN]),
+        HAS_SWIMMING_POOL_COLUMN: int(property_input[HAS_SWIMMING_POOL_COLUMN]),
+    }
+    for column in DERIVED_COLUMNS:
+        values[column] = numeric_mean(rows, column)
+
+    missing_features = [feature for feature in features if feature not in values]
+    if missing_features:
+        raise ValueError(f"Missing model features: {missing_features}")
+
+    return pd.DataFrame([{feature: values[feature] for feature in features}])
+
+
+def predict_price(
+    package: dict[str, Any],
+    dataset: pd.DataFrame,
+    neighborhood: str,
+    property_input: dict[str, Any],
+) -> float:
+    """Predict LOG_PRICE and return the estimated real price in euros."""
+    input_frame = build_model_input(
+        features=model_features(package),
+        dataset=dataset,
+        neighborhood=neighborhood,
+        property_input=property_input,
+    )
+    predicted_log_price = package["model"].predict(input_frame)[0]
+    return float(np.expm1(predicted_log_price))
+
+
+def classify_valuation(difference_percent: float) -> str:
+    """Return a neutral label for the valuation output."""
+    return "Estimaci\u00f3n orientativa"
+
+
+def feature_importance(package: dict[str, Any]) -> pd.DataFrame:
+    """Return global feature importance from the Random Forest."""
+    importances = getattr(package["model"], "feature_importances_", None)
+    if importances is None:
+        return pd.DataFrame(columns=["Variable", "Importance"])
+    return (
+        pd.DataFrame({"Variable": model_features(package), "Importance": importances})
+        .sort_values("Importance", ascending=False)
+        .reset_index(drop=True)
     )
 
 
-def open_card(title: str, eyebrow: str = "") -> None:
-    """Open a visual card with title markup."""
-    st.markdown(
-        f"""
-        <div class="card">
-            <div class="card-title">
-                <div>
-                    <div class="eyebrow">{eyebrow}</div>
-                    <h2 class="section-title">{title}</h2>
-                </div>
-                <span class="ai-pill">AI-ready</span>
-            </div>
-        """,
-        unsafe_allow_html=True,
+def top_feature(package: dict[str, Any]) -> str:
+    """Return the most important global model feature."""
+    importance = feature_importance(package)
+    if importance.empty:
+        return "No disponible"
+    return str(importance.iloc[0]["Variable"])
+
+
+def calculate_valuation(
+    package: dict[str, Any],
+    dataset: pd.DataFrame,
+    neighborhood: str,
+    property_input: dict[str, Any],
+) -> dict[str, Any]:
+    """Calculate prediction, benchmark metrics and context."""
+    rows = get_neighborhood_rows(dataset, neighborhood)
+    estimated_price = predict_price(package, dataset, neighborhood, property_input)
+    estimated_unit_price = estimated_price / float(property_input[AREA_COLUMN])
+    average_unit_price = numeric_mean(rows, UNIT_PRICE_COLUMN)
+    median_unit_price = numeric_median(rows, UNIT_PRICE_COLUMN)
+    difference_percent = (
+        (estimated_unit_price - average_unit_price) / average_unit_price * 100
     )
 
-
-def close_card() -> None:
-    """Close a visual card."""
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def show_error(message: str | None) -> None:
-    """Show a user-friendly backend error."""
-    if not message:
-        message = "No se ha podido completar la consulta."
-
-    if "model" in message.lower() or "predict" in message.lower():
-        st.warning(
-            "El modelo de valoracion todavia no esta disponible. "
-            "La interfaz esta preparada para integrarlo sin cambios visuales."
-        )
-        return
-
-    st.error(message)
+    return {
+        "neighborhood": neighborhood,
+        "input": dict(property_input),
+        "estimated_price": estimated_price,
+        "estimated_unit_price": estimated_unit_price,
+        "average_unit_price": average_unit_price,
+        "median_unit_price": median_unit_price,
+        "difference_percent": difference_percent,
+        "classification": classify_valuation(difference_percent),
+        "average_price": numeric_mean(rows, PRICE_COLUMN),
+        "median_price": numeric_median(rows, PRICE_COLUMN),
+        "property_count": int(len(rows)),
+        "distance_to_city_center": numeric_mean(rows, DISTANCE_TO_CITY_CENTER_COLUMN),
+        "distance_to_castellana": numeric_mean(rows, DISTANCE_TO_CASTELLANA_COLUMN),
+        "distance_to_metro": numeric_mean(rows, DISTANCE_TO_METRO_COLUMN),
+        "top_feature": top_feature(package),
+    }
 
 
-def show_empty_result() -> None:
-    """Render an elegant empty result state."""
-    open_card("Valuation Output", "Live estimate")
-    st.markdown(
-        """
-        <div class="result-caption">Complete the property form and run the analysis.</div>
-        <div class="result-price">€ --</div>
-        <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Confidence</div><div class="kpi-value">Pending</div></div>
-            <div class="kpi-card"><div class="kpi-label">Zone</div><div class="kpi-value">--</div></div>
-            <div class="kpi-card"><div class="kpi-label">Estimated €/m2</div><div class="kpi-value">--</div></div>
-            <div class="kpi-card"><div class="kpi-label">Area Score</div><div class="kpi-value">--</div></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    close_card()
-
-
-def show_result_ready() -> None:
-    """Render a compact state when the main result is shown below."""
-    open_card("Valuation Ready", "Output generated")
-    st.markdown(
-        """
-        <div class="result-caption">The full valuation report is displayed below.</div>
-        <div class="result-price">Ready</div>
-        <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Report</div><div class="kpi-value">Generated</div></div>
-            <div class="kpi-card"><div class="kpi-label">Advisor</div><div class="kpi-value">Online</div></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    close_card()
-
-
-def get_market_context(
-    agent: SmartAdvisorAgent,
-    input_data: dict[str, Any],
-    estimated_price: float,
-) -> dict[str, Any] | None:
-    """Get market context through SmartAdvisorAgent only."""
-    neighborhood = input_data.get("LOCATIONNAME")
-    if not neighborhood:
-        return None
-
-    response = agent.process_request(
-        {
-            "intent": "property_comparison",
-            "neighborhood": neighborhood,
-            "property_price": estimated_price,
-        }
-    )
-    if not response.get("success"):
-        return None
-
-    return response.get("data", {})
-
-
-def build_property_summary(
-    input_data: dict[str, Any],
-    market_context: dict[str, Any] | None,
+def answer_valuation_question(
+    question: str,
+    package: dict[str, Any],
+    dataset: pd.DataFrame,
+    context: dict[str, Any],
 ) -> str:
-    """Build a short automatic summary from agent-provided data."""
-    neighborhood = input_data.get("LOCATIONNAME", "la zona seleccionada")
-    area = input_data.get("CONSTRUCTEDAREA", "la superficie indicada")
-    rooms = input_data.get("ROOMNUMBER", "varias")
-    bathrooms = input_data.get("BATHNUMBER", "varios")
+    """Answer rule-based follow-up questions from the last valuation."""
+    normalized_question = question.casefold()
 
-    if market_context:
-        classification = market_context.get("classification", "En precio").lower()
-        percentage = market_context.get("percentage_difference", 0)
+    if "piscina" in normalized_question:
+        simulated_input = dict(context["input"])
+        if int(simulated_input[HAS_SWIMMING_POOL_COLUMN]) == 1:
+            return "La vivienda ya incluye piscina en la valoraci\u00f3n actual."
+        simulated_input[HAS_SWIMMING_POOL_COLUMN] = 1
+        simulated_price = predict_price(
+            package, dataset, context["neighborhood"], simulated_input
+        )
+        difference = simulated_price - float(context["estimated_price"])
         return (
-            f"La vivienda en {neighborhood} presenta una valoracion {classification} "
-            f"respecto a la media del barrio. La estimacion combina una superficie "
-            f"de {area} m2, {rooms} habitaciones, {bathrooms} banos y el equipamiento "
-            f"declarado. La diferencia frente al mercado local es de "
-            f"{format_percent(float(percentage))}."
+            f"Si tuviera piscina, la estimaci\u00f3n ser\u00eda {format_euros(simulated_price)}, "
+            f"con una diferencia aproximada de {format_euros(difference)}."
+        )
+
+    if "parking" in normalized_question or "garaje" in normalized_question:
+        simulated_input = dict(context["input"])
+        if int(simulated_input[HAS_PARKING_COLUMN]) == 1:
+            return "La vivienda ya incluye parking en la valoraci\u00f3n actual."
+        simulated_input[HAS_PARKING_COLUMN] = 1
+        simulated_price = predict_price(
+            package, dataset, context["neighborhood"], simulated_input
+        )
+        difference = simulated_price - float(context["estimated_price"])
+        return (
+            f"Si tuviera parking, la estimaci\u00f3n ser\u00eda {format_euros(simulated_price)}, "
+            f"con una diferencia aproximada de {format_euros(difference)}."
+        )
+
+    if "variable" in normalized_question or "influ" in normalized_question:
+        return (
+            f"La variable con mayor importancia global en el Random Forest es "
+            f"{context['top_feature']}."
+        )
+
+    if "comunic" in normalized_question or "metro" in normalized_question:
+        return (
+            "La informaci\u00f3n de ubicaci\u00f3n disponible para este barrio indica estas distancias medias: "
+            f"centro {context['distance_to_city_center']:.2f}, "
+            f"Castellana {context['distance_to_castellana']:.2f} y "
+            f"metro {context['distance_to_metro']:.2f}."
         )
 
     return (
-        f"La vivienda en {neighborhood} ha sido valorada con el modelo MVP a partir "
-        f"de {area} m2, {rooms} habitaciones, {bathrooms} banos y sus amenities. "
-        "El resultado esta preparado para enriquecerse con el modelo definitivo."
+        f"La estimaci\u00f3n del modelo es {format_euros(context['estimated_price'])}, "
+        f"equivalente a {format_euros_per_m2(context['estimated_unit_price'])}. "
+        "Debe interpretarse como una ayuda a la toma de decisiones, no como una tasaci\u00f3n oficial."
     )
 
 
-def render_property_summary(
-    input_data: dict[str, Any],
-    market_context: dict[str, Any] | None,
-) -> None:
-    """Render the automatic property summary."""
-    summary = build_property_summary(input_data, market_context)
-    st.markdown(
-        f"""
-        <div class="summary-card">
-            <div class="eyebrow">Automatic narrative</div>
-            <h2 class="section-title">Property Summary</h2>
-            <div class="summary-text">{summary}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def initialize_valuation_state() -> None:
+    """Initialize session state for the conversational valuation flow."""
+    st.session_state.setdefault("valuation_step", 0)
+    st.session_state.setdefault("valuation_data", {})
+    st.session_state.setdefault("valuation_messages", [])
+    st.session_state.setdefault("valuation_context", None)
+    st.session_state.setdefault("followup_messages", [])
 
 
-def render_market_insights(
-    estimated_price: float,
-    unit_price: float,
-    market_context: dict[str, Any] | None,
-) -> None:
-    """Render market context using only data returned by SmartAdvisorAgent."""
-    if not market_context:
+def reset_valuation_state() -> None:
+    """Reset the conversational valuation flow."""
+    st.session_state["valuation_step"] = 0
+    st.session_state["valuation_data"] = {}
+    st.session_state["valuation_messages"] = []
+    st.session_state["valuation_context"] = None
+    st.session_state["followup_messages"] = []
+
+
+def question_for_step(step_index: int) -> str:
+    """Return the assistant question for the current valuation step."""
+    questions = [
+        "\u00bfEn qu\u00e9 barrio est\u00e1 la vivienda?",
+        "\u00bfCu\u00e1ntos metros cuadrados construidos tiene?",
+        "\u00bfCu\u00e1ntas habitaciones tiene?",
+        "\u00bfCu\u00e1ntos ba\u00f1os tiene?",
+        "\u00bfTiene ascensor? Responde s\u00ed o no.",
+        "\u00bfTiene terraza? Responde s\u00ed o no.",
+        "\u00bfTiene aire acondicionado? Responde s\u00ed o no.",
+        "\u00bfTiene plaza de garaje? Responde s\u00ed o no.",
+        "\u00bfTiene trastero? Responde s\u00ed o no.",
+        "\u00bfTiene piscina? Responde s\u00ed o no.",
+    ]
+    return questions[step_index]
+
+
+def normalize_text(value: str) -> str:
+    """Normalize text for accent-insensitive parsing."""
+    normalized = unicodedata.normalize("NFKD", str(value).casefold().strip())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def parse_number_from_text(value: str) -> float | None:
+    """Extract a number from a natural-language answer."""
+    normalized = normalize_text(value)
+    word_numbers = {
+        "cero": 0,
+        "uno": 1,
+        "una": 1,
+        "dos": 2,
+        "tres": 3,
+        "cuatro": 4,
+        "cinco": 5,
+        "seis": 6,
+        "siete": 7,
+        "ocho": 8,
+        "nueve": 9,
+        "diez": 10,
+    }
+    match = re.search(r"\d+(?:[\.,]\d+)?", normalized)
+    if match:
+        return float(match.group(0).replace(",", "."))
+    tokens = re.findall(r"[a-zA-Z]+", normalized)
+    for token in tokens:
+        if token in word_numbers:
+            return float(word_numbers[token])
+    return None
+
+
+def parse_boolean_answer(value: str) -> int | None:
+    """Parse yes/no natural-language answers into 1 or 0."""
+    normalized = normalize_text(value)
+    negative_tokens = ("no", "sin", "ninguno", "ninguna", "false", "falso")
+    positive_tokens = ("si", "con", "tiene", "yes", "true", "verdadero")
+    if any(re.search(rf"\b{token}\b", normalized) for token in negative_tokens):
+        return 0
+    if normalized.startswith("s") and not normalized.startswith("sin"):
+        return 1
+    if any(re.search(rf"\b{normalize_text(token)}\b", normalized) for token in positive_tokens):
+        return 1
+    return None
+
+
+def parse_neighborhood_answer(value: str, neighborhoods: list[str]) -> str | None:
+    """Match a typed neighborhood against LOCATIONNAME values."""
+    normalized_value = normalize_text(value)
+    normalized_map = {normalize_text(neighborhood): neighborhood for neighborhood in neighborhoods}
+    if normalized_value in normalized_map:
+        return normalized_map[normalized_value]
+    for normalized_neighborhood, neighborhood in normalized_map.items():
+        if normalized_value and normalized_value in normalized_neighborhood:
+            return neighborhood
+    return None
+
+
+def parse_conversation_answer(
+    field: str,
+    answer: str,
+    neighborhoods: list[str],
+) -> tuple[Any | None, str | None]:
+    """Parse one chat answer for the active valuation field."""
+    if field == "neighborhood":
+        neighborhood = parse_neighborhood_answer(answer, neighborhoods)
+        if neighborhood is None:
+            return None, "No encuentro ese barrio en el dataset. Prueba con un nombre como Aravaca, Palacio o Sol."
+        return neighborhood, None
+
+    if field == AREA_COLUMN:
+        number = parse_number_from_text(answer)
+        if number is None or number <= 0:
+            return None, "Necesito una superficie v\u00e1lida, por ejemplo: 95."
+        return float(number), None
+
+    if field in (ROOMS_COLUMN, BATHROOMS_COLUMN):
+        number = parse_number_from_text(answer)
+        if number is None or number < 0:
+            return None, "Necesito un n\u00famero v\u00e1lido, por ejemplo: 3."
+        return int(number), None
+
+    boolean_value = parse_boolean_answer(answer)
+    if boolean_value is None:
+        return None, "Necesito una respuesta tipo s\u00ed o no."
+    return boolean_value, None
+
+
+def current_property_input() -> dict[str, Any]:
+    """Build property input from stored conversational answers."""
+    data = st.session_state["valuation_data"]
+    return {
+        AREA_COLUMN: float(data[AREA_COLUMN]),
+        ROOMS_COLUMN: int(data[ROOMS_COLUMN]),
+        BATHROOMS_COLUMN: int(data[BATHROOMS_COLUMN]),
+        HAS_LIFT_COLUMN: int(data[HAS_LIFT_COLUMN]),
+        HAS_TERRACE_COLUMN: int(data[HAS_TERRACE_COLUMN]),
+        HAS_AIR_CONDITIONING_COLUMN: int(data[HAS_AIR_CONDITIONING_COLUMN]),
+        HAS_PARKING_COLUMN: int(data[HAS_PARKING_COLUMN]),
+        HAS_BOXROOM_COLUMN: int(data[HAS_BOXROOM_COLUMN]),
+        HAS_SWIMMING_POOL_COLUMN: int(data[HAS_SWIMMING_POOL_COLUMN]),
+    }
+
+
+def render_chat_history() -> None:
+    """Render the valuation conversation history."""
+    for role, content in st.session_state["valuation_messages"]:
+        with st.chat_message(role):
+            if role == "assistant":
+                st.info(content)
+            else:
+                st.caption(content)
+
+
+def render_current_conversation_step(neighborhoods: list[str]) -> None:
+    """Capture the active valuation answer using only st.chat_input."""
+    step_index = st.session_state["valuation_step"]
+    if step_index >= len(CONVERSATION_STEPS):
         return
 
-    stats = market_context.get("neighborhood_stats", {})
-    avg_price = float(market_context.get("neighborhood_average_price", 0) or 0)
-    percentage = float(market_context.get("percentage_difference", 0) or 0)
-    classification = market_context.get("classification", "N/A")
-    property_count = stats.get("property_count", 0)
-    avg_unit_price = float(stats.get("average_unit_price", 0) or 0)
-    avg_area = float(stats.get("average_area", 0) or 0)
+    field, _label = CONVERSATION_STEPS[step_index]
+    answer = st.chat_input("Responde al AI Property Advisor")
+    if not answer:
+        return
 
-    st.markdown(
-        f"""
-        <div class="summary-card">
-            <div class="eyebrow">Dataset context</div>
-            <h2 class="section-title">Market Insights</h2>
-            <div class="insight-grid">
-                <div class="insight-card">
-                    <div class="kpi-label">Neighborhood average</div>
-                    <div class="insight-value">{format_currency(avg_price)}</div>
-                </div>
-                <div class="insight-card">
-                    <div class="kpi-label">Position vs average</div>
-                    <div class="insight-value">{format_percent(percentage)}</div>
-                </div>
-                <div class="insight-card">
-                    <div class="kpi-label">Market status</div>
-                    <div class="insight-value">{classification}</div>
-                </div>
-                <div class="insight-card">
-                    <div class="kpi-label">Neighborhood €/m2</div>
-                    <div class="insight-value">{format_currency(avg_unit_price)}</div>
-                </div>
-                <div class="insight-card">
-                    <div class="kpi-label">Properties analyzed</div>
-                    <div class="insight-value">{property_count}</div>
-                </div>
-                <div class="insight-card">
-                    <div class="kpi-label">Zone score</div>
-                    <div class="insight-value">MVP-ready</div>
-                </div>
-            </div>
-            <div class="result-caption" style="margin-top:14px;">
-                Estimated property €/m2: {format_currency(unit_price)} · Average area in the zone: {avg_area:.2f} m2
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.session_state["valuation_messages"].append(("user", answer))
+    parsed_value, error = parse_conversation_answer(field, answer, neighborhoods)
+    if error:
+        st.session_state["valuation_messages"].append(("assistant", error))
+        st.session_state["valuation_messages"].append(("assistant", question_for_step(step_index)))
+        st.rerun()
 
+    st.session_state["valuation_data"][field] = parsed_value
+    st.session_state["valuation_step"] += 1
 
-def show_valuation_result(
-    data: dict[str, Any],
-    market_context: dict[str, Any] | None = None,
-) -> None:
-    """Render valuation results returned by the agent."""
-    estimated_price = float(data["estimated_price"])
-    input_data = data.get("input", {})
-    area = float(input_data.get("CONSTRUCTEDAREA", 0) or 0)
-    unit_price = estimated_price / area if area > 0 else 0
-    neighborhood = input_data.get("LOCATIONNAME", "N/A")
-    st.markdown(
-        f"""
-        <section class="result-hero">
-            <div class="eyebrow">Estimated Market Value</div>
-            <div class="hero-price">{format_currency(estimated_price)}</div>
-            <div class="result-caption">
-                Machine Learning valuation for {neighborhood}
-            </div>
-            <div class="valuation-date">Valuation date: {date.today().strftime("%d/%m/%Y")}</div>
-            <div class="kpi-grid-wide">
-                <div class="kpi-card"><div class="kpi-label">Estimated €/m2</div><div class="kpi-value">{format_currency(unit_price)}</div></div>
-                <div class="kpi-card"><div class="kpi-label">Neighborhood</div><div class="kpi-value">{neighborhood}</div></div>
-                <div class="kpi-card"><div class="kpi-label">Confidence</div><div class="kpi-value">MVP model</div></div>
-                <div class="kpi-card"><div class="kpi-label">Bedrooms</div><div class="kpi-value">{input_data.get("ROOMNUMBER", "N/A")}</div></div>
-                <div class="kpi-card"><div class="kpi-label">Bathrooms</div><div class="kpi-value">{input_data.get("BATHNUMBER", "N/A")}</div></div>
-            </div>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    render_property_summary(input_data, market_context)
-    render_market_insights(estimated_price, unit_price, market_context)
-
-    with st.expander("Variables sent to the model"):
-        st.json(input_data)
-
-
-def show_valuation_preview(data: dict[str, Any]) -> None:
-    """Render compact valuation output for generic response rendering."""
-    estimated_price = float(data["estimated_price"])
-    input_data = data.get("input", {})
-    area = float(input_data.get("CONSTRUCTEDAREA", 0) or 0)
-    unit_price = estimated_price / area if area > 0 else 0
-    neighborhood = input_data.get("LOCATIONNAME", "N/A")
-
-    open_card("Valuation Output", "Live estimate")
-    st.markdown(
-        f"""
-        <div class="result-caption">Estimated market value</div>
-        <div class="result-price">{format_currency(estimated_price)}</div>
-        <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Confidence</div><div class="kpi-value">MVP model</div></div>
-            <div class="kpi-card"><div class="kpi-label">Zone</div><div class="kpi-value">{neighborhood}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Estimated €/m2</div><div class="kpi-value">{format_currency(unit_price)}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Area Score</div><div class="kpi-value">Data-ready</div></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    close_card()
-
-
-def show_neighborhood_stats(data: dict[str, Any]) -> None:
-    """Render neighborhood statistics returned by the agent."""
-    open_card(f"{data['neighborhood']} Market Snapshot", "Neighborhood intelligence")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Properties", f"{data['property_count']:,}".replace(",", "."))
-    col2.metric("Average price", format_currency(data["average_price"]))
-    col3.metric("Median price", format_currency(data["median_price"]))
-
-    col4, col5, col6 = st.columns(3)
-    col4.metric("Average €/m2", format_currency(data["average_unit_price"]))
-    col5.metric("Average area", f"{data['average_area']:.2f} m2")
-    col6.metric(
-        "Price range",
-        f"{format_currency(data['min_price'])} - {format_currency(data['max_price'])}",
-    )
-    close_card()
-
-
-def show_property_comparison(data: dict[str, Any]) -> None:
-    """Render property comparison results returned by the agent."""
-    open_card("Property vs Neighborhood", "Benchmark")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Property price", format_currency(data["property_price"]))
-    col2.metric("Neighborhood average", format_currency(data["neighborhood_average_price"]))
-    col3.metric(
-        "Difference",
-        format_currency(data["absolute_difference"]),
-        format_percent(data["percentage_difference"]),
-    )
-
-    classification = data["classification"]
-    if classification == "Infravalorada":
-        st.success(f"Classification: {classification}")
-    elif classification == "Sobrevalorada":
-        st.warning(f"Classification: {classification}")
+    if st.session_state["valuation_step"] >= len(CONVERSATION_STEPS):
+        st.session_state["valuation_messages"].append(("assistant", "Perfecto. Ya tengo todos los datos y voy a calcular la valoraci\u00f3n."))
     else:
-        st.info(f"Classification: {classification}")
-    close_card()
+        st.session_state["valuation_messages"].append(("assistant", question_for_step(st.session_state["valuation_step"])))
+    st.rerun()
 
 
-def show_neighborhood_comparison(data: dict[str, Any]) -> None:
-    """Render neighborhood comparison results returned by the agent."""
-    first = data["first_neighborhood"]
-    second = data["second_neighborhood"]
-    price_difference = data["average_price_difference"]
-    unit_price_difference = data["average_unit_price_difference"]
+def render_valuation_results(
+    package: dict[str, Any],
+    context: dict[str, Any],
+) -> None:
+    """Render valuation results as an executive dashboard."""
+    st.success("Valoraci\u00f3n completada por el AI Property Advisor.")
+    st.subheader("Resultado de valoraci\u00f3n")
 
-    open_card("Neighborhood Comparison", "Market intelligence")
-    col1, col2 = st.columns(2)
+    with st.container(border=True):
+        main_col, detail_col = st.columns([1.2, 1])
+        with main_col:
+            st.metric("Precio estimado", format_euros(context["estimated_price"]))
+            st.metric("Precio estimado por m\u00b2", format_euros_per_m2(context["estimated_unit_price"]))
+        with detail_col:
+            st.metric("Barrio", context["neighborhood"])
 
-    with col1:
-        st.metric(first["neighborhood"], format_currency(first["average_price"]))
-        st.metric("Average €/m2", format_currency(first["average_unit_price"]))
-        st.metric("Properties", f"{first['property_count']:,}".replace(",", "."))
-
-    with col2:
-        st.metric(second["neighborhood"], format_currency(second["average_price"]))
-        st.metric("Average €/m2", format_currency(second["average_unit_price"]))
-        st.metric("Properties", f"{second['property_count']:,}".replace(",", "."))
+    st.subheader("Variables con mayor influencia (Feature Importance)")
+    importance = feature_importance(package)
+    if importance.empty:
+        st.warning("El modelo no expone feature_importances_.")
+    else:
+        st.bar_chart(importance.set_index("Variable").head(10))
+        st.caption("Importancia global del Random Forest. No representa explicabilidad local de una vivienda concreta.")
 
     st.info(
-        "Average price difference: "
-        f"{format_currency(price_difference['absolute_difference'])} "
-        f"({format_percent(price_difference['percentage_difference'])}). "
-        "Average €/m2 difference: "
-        f"{format_currency(unit_price_difference['absolute_difference'])} "
-        f"({format_percent(unit_price_difference['percentage_difference'])})."
-    )
-    close_card()
-
-
-def show_budget_recommendations(data: dict[str, Any]) -> None:
-    """Render budget recommendation results returned by the agent."""
-    open_card("Budget Recommendations", "AI market assistant")
-    st.metric("Budget", format_currency(data["budget"]))
-
-    recommendations = data.get("recommendations", [])
-    if not recommendations:
-        st.warning("No neighborhoods match that budget.")
-        close_card()
-        return
-
-    for recommendation in recommendations:
-        with st.container(border=True):
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Neighborhood", recommendation["neighborhood"])
-            col2.metric("Average price", format_currency(recommendation["average_price"]))
-            col3.metric("Budget gap", format_currency(recommendation["budget_gap"]))
-            st.caption(
-                f"{recommendation['property_count']} properties analyzed | "
-                f"{format_currency(recommendation['average_unit_price'])}/m2 | "
-                f"average area {recommendation['average_area']:.2f} m2"
-            )
-    close_card()
-
-
-def render_response(response: dict[str, Any]) -> None:
-    """Render a structured response from SmartAdvisorAgent."""
-    message = response.get("message")
-    if message:
-        st.markdown(f'<div class="chat-bubble chat-ai">{message}</div>', unsafe_allow_html=True)
-
-    if not response.get("success"):
-        show_error(response.get("error"))
-        return
-
-    intent = response.get("intent")
-    data = response.get("data", {})
-
-    if intent in {"neighborhood_stats", "neighborhood_analysis"}:
-        show_neighborhood_stats(data)
-    elif intent == "property_comparison":
-        show_property_comparison(data)
-    elif intent == "neighborhood_comparison":
-        show_neighborhood_comparison(data)
-    elif intent == "budget_recommendation":
-        show_budget_recommendations(data)
-    elif intent == "valuation":
-        show_valuation_preview(data)
-    else:
-        st.json(response)
-
-
-def render_property_features(agent: SmartAdvisorAgent) -> None:
-    """Render the main valuation workspace."""
-    left, right = st.columns([0.92, 1.08], gap="large")
-
-    with left:
-        open_card("Property Features", "Input workspace")
-        with st.form("valuation_form"):
-            st.markdown('<div class="field-group"><div class="field-label">Property / Location</div>', unsafe_allow_html=True)
-            neighborhood = st.text_input("Neighborhood", placeholder="Palacio")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown('<div class="field-group"><div class="field-label">Size</div>', unsafe_allow_html=True)
-            area = st.number_input("Constructed area (m2)", min_value=1.0, value=80.0, step=1.0)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown('<div class="field-group"><div class="field-label">Rooms</div>', unsafe_allow_html=True)
-                rooms = st.number_input("Bedrooms", min_value=0, value=2, step=1)
-                st.markdown("</div>", unsafe_allow_html=True)
-            with col2:
-                st.markdown('<div class="field-group"><div class="field-label">Bathrooms</div>', unsafe_allow_html=True)
-                bathrooms = st.number_input("Bathrooms", min_value=0, value=1, step=1)
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown('<div class="field-group"><div class="field-label">Amenities</div>', unsafe_allow_html=True)
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                has_lift = st.checkbox("Lift", value=True)
-            with c2:
-                has_terrace = st.checkbox("Terrace")
-            with c3:
-                has_parking = st.checkbox("Parking")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            submitted = st.form_submit_button("Analyze", use_container_width=True)
-        close_card()
-
-        if submitted:
-            request = {
-                "intent": "valuation",
-                "LOCATIONNAME": neighborhood,
-                "CONSTRUCTEDAREA": area,
-                "ROOMNUMBER": rooms,
-                "BATHNUMBER": bathrooms,
-                "HASLIFT": int(has_lift),
-                "HASTERRACE": int(has_terrace),
-                "HASPARKINGSPACE": int(has_parking),
-            }
-            response = agent.process_request(request)
-            st.session_state.last_valuation_response = response
-            st.session_state.pop("last_advisor_question", None)
-            st.session_state.pop("last_advisor_response", None)
-
-            market_context = None
-            if response.get("success"):
-                market_context = get_market_context(
-                    agent=agent,
-                    input_data=response["data"].get("input", {}),
-                    estimated_price=float(response["data"]["estimated_price"]),
-                )
-            st.session_state.last_market_context = market_context
-
-    with right:
-        response = st.session_state.get("last_valuation_response")
-        if response and response.get("success"):
-            show_result_ready()
-        elif response:
-            render_response(response)
-        else:
-            show_empty_result()
-
-    response = st.session_state.get("last_valuation_response")
-    if response and response.get("success"):
-        show_valuation_result(
-            response["data"],
-            st.session_state.get("last_market_context"),
-        )
-        render_property_advisor_chat(agent, response)
-
-
-def render_comparison_form(agent: SmartAdvisorAgent) -> None:
-    """Render the property comparison form."""
-    open_card("Compare With Neighborhood", "Benchmark tool")
-    with st.form("comparison_form"):
-        neighborhood = st.text_input("Neighborhood", placeholder="Palacio")
-        property_price = st.number_input(
-            "Property price",
-            min_value=1.0,
-            step=1000.0,
-        )
-        submitted = st.form_submit_button("Analyze", use_container_width=True)
-
-    if submitted:
-        request = {
-            "intent": "property_comparison",
-            "neighborhood": neighborhood,
-            "property_price": property_price,
-        }
-        render_response(agent.process_request(request))
-    close_card()
-
-
-def render_neighborhood_form(agent: SmartAdvisorAgent) -> None:
-    """Render the neighborhood analysis form."""
-    open_card("Neighborhood Intelligence", "Market analytics")
-    with st.form("neighborhood_form"):
-        neighborhood = st.text_input("Neighborhood", placeholder="Palacio")
-        submitted = st.form_submit_button("Analyze", use_container_width=True)
-
-    if submitted:
-        request = {
-            "intent": "neighborhood_stats",
-            "neighborhood": neighborhood,
-        }
-        render_response(agent.process_request(request))
-    close_card()
-
-
-def render_chat_mode(agent: SmartAdvisorAgent) -> None:
-    """Render a natural-language interaction mode."""
-    st.markdown('<div class="chat-panel">', unsafe_allow_html=True)
-    st.markdown('<div class="eyebrow">Conversational AI layer</div>', unsafe_allow_html=True)
-    st.markdown('<h2 class="section-title">Chat Smart Advisor</h2>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="chat-bubble chat-ai">Ask for valuations, market analysis, neighborhood comparisons or budget recommendations.</div>',
-        unsafe_allow_html=True,
+        "Esta valoraci\u00f3n constituye una estimaci\u00f3n basada en un modelo de Machine Learning entrenado con datos "
+        "hist\u00f3ricos del mercado inmobiliario de Madrid. Debe interpretarse como una ayuda a la toma de decisiones "
+        "y no como una tasaci\u00f3n oficial."
     )
 
-    examples = [
-        "Valora una vivienda en Palacio de 80 m2 con 2 habitaciones y 1 baño con ascensor",
-        "Analiza el barrio Palacio",
-        "Compara Palacio y Sol",
-        "Tengo 300000 euros, ¿en qué barrios puedo comprar?",
-    ]
-    st.markdown(
-        "".join([f'<span class="example-chip">{example}</span>' for example in examples]),
-        unsafe_allow_html=True,
-    )
 
-    with st.form("chat_form"):
-        message = st.text_area(
-            "Your query",
-            placeholder="Analiza el barrio Palacio",
-            height=120,
-        )
-        submitted = st.form_submit_button("Send to Smart Advisor", use_container_width=True)
-
-    if submitted:
-        if not message.strip():
-            st.warning("Write a query so Smart Advisor can help.")
-        else:
-            st.markdown(f'<div class="chat-bubble chat-user">{message}</div>', unsafe_allow_html=True)
-            response = agent.process_message(message)
-            render_response(response)
-
-            with st.expander("Structured response"):
-                st.json(response)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def render_property_advisor_chat(
-    agent: SmartAdvisorAgent,
-    valuation_response: dict[str, Any],
+def render_followup_chat(
+    package: dict[str, Any],
+    dataset: pd.DataFrame,
+    context: dict[str, Any],
 ) -> None:
-    """Render the contextual advisor chat after a valuation."""
-    input_data = valuation_response.get("data", {}).get("input", {})
-    neighborhood = input_data.get("LOCATIONNAME", "esta zona")
-    suggestions = [
-        f"Analiza el barrio {neighborhood}",
-        "Compara Palacio y Sol",
-        "Tengo 300000 euros, ¿en qué barrios puedo comprar?",
-        f"Valora una vivienda en {neighborhood} de 90 m2 con 3 habitaciones y 2 baños con ascensor",
-        f"Analiza la zona {neighborhood}",
-        "Tengo 450000 euros, ¿en qué barrios puedo comprar?",
+    """Render the post-valuation conversational assistant."""
+    st.subheader("AI Property Advisor")
+    st.info(
+        "La valoraci\u00f3n ya est\u00e1 lista. Puedes preguntarme por el precio estimado, "
+        "las variables con mayor influencia, parking, piscina o informaci\u00f3n de ubicaci\u00f3n disponible."
+    )
+
+    for role, content in st.session_state["followup_messages"]:
+        with st.chat_message(role):
+            if role == "assistant":
+                st.info(content)
+            else:
+                st.caption(content)
+
+    question = st.chat_input("Pregunta al AI Property Advisor")
+    if question:
+        answer = answer_valuation_question(question, package, dataset, context)
+        st.session_state["followup_messages"].append(("user", question))
+        st.session_state["followup_messages"].append(("assistant", answer))
+        with st.chat_message("user"):
+            st.caption(question)
+        with st.chat_message("assistant"):
+            st.info(answer)
+
+
+def render_property_valuation(dataset: pd.DataFrame, package: dict[str, Any]) -> None:
+    """Render module 1 as a true conversational AI Property Advisor."""
+    initialize_valuation_state()
+    neighborhoods = get_neighborhoods(dataset)
+    st.subheader("AI Property Valuation")
+    st.info("Responde en lenguaje natural. El AI Property Advisor interpretar\u00e1 cada dato y avanzar\u00e1 paso a paso.")
+
+    if not st.session_state["valuation_messages"]:
+        st.session_state["valuation_messages"].append(("assistant", question_for_step(0)))
+
+    progress = st.session_state["valuation_step"] / len(CONVERSATION_STEPS)
+    st.progress(progress, text=f"Progreso de valoraci\u00f3n: {st.session_state['valuation_step']} de {len(CONVERSATION_STEPS)} datos")
+
+    render_chat_history()
+
+    if st.session_state["valuation_step"] < len(CONVERSATION_STEPS):
+        render_current_conversation_step(neighborhoods)
+        return
+
+    if st.session_state["valuation_context"] is None:
+        neighborhood = str(st.session_state["valuation_data"]["neighborhood"])
+        context = calculate_valuation(
+            package=package,
+            dataset=dataset,
+            neighborhood=neighborhood,
+            property_input=current_property_input(),
+        )
+        st.session_state["valuation_context"] = context
+
+    context = st.session_state["valuation_context"]
+    render_valuation_results(package, context)
+    render_followup_chat(package, dataset, context)
+
+
+def summarize_neighborhood(dataset: pd.DataFrame, neighborhood: str) -> dict[str, float | int | str]:
+    """Calculate neighborhood comparison indicators."""
+    rows = get_neighborhood_rows(dataset, neighborhood)
+    return {
+        "Barrio": neighborhood,
+        "Precio medio": numeric_mean(rows, PRICE_COLUMN),
+        "Precio mediano": numeric_median(rows, PRICE_COLUMN),
+        "EUR/m2 medio": numeric_mean(rows, UNIT_PRICE_COLUMN),
+        "EUR/m\u00b2 mediano": numeric_median(rows, UNIT_PRICE_COLUMN),
+        "Superficie media": numeric_mean(rows, AREA_COLUMN),
+        "Habitaciones medias": numeric_mean(rows, ROOMS_COLUMN),
+        "Ba\u00f1os medios": numeric_mean(rows, BATHROOMS_COLUMN),
+        "% ascensor": numeric_mean(rows, HAS_LIFT_COLUMN) * 100,
+        "% terraza": numeric_mean(rows, HAS_TERRACE_COLUMN) * 100,
+        "% aire acondicionado": numeric_mean(rows, HAS_AIR_CONDITIONING_COLUMN) * 100,
+        "% parking": numeric_mean(rows, HAS_PARKING_COLUMN) * 100,
+        "% trastero": numeric_mean(rows, HAS_BOXROOM_COLUMN) * 100,
+        "% piscina": numeric_mean(rows, HAS_SWIMMING_POOL_COLUMN) * 100,
+        "Distancia centro": numeric_mean(rows, DISTANCE_TO_CITY_CENTER_COLUMN),
+        "Distancia Castellana": numeric_mean(rows, DISTANCE_TO_CASTELLANA_COLUMN),
+        "Distancia metro": numeric_mean(rows, DISTANCE_TO_METRO_COLUMN),
+        "Viviendas analizadas": int(len(rows)),
+    }
+
+
+def build_comparison_summary(comparison: pd.DataFrame) -> dict[str, str]:
+    """Build executive comparison labels from the existing indicators."""
+    first = comparison.iloc[0]
+    second = comparison.iloc[1]
+    cheaper = first["Barrio"] if first["Precio medio"] < second["Precio medio"] else second["Barrio"]
+    pricier_m2 = first["Barrio"] if first["EUR/m2 medio"] > second["EUR/m2 medio"] else second["Barrio"]
+    better_connected = first["Barrio"] if first["Distancia metro"] < second["Distancia metro"] else second["Barrio"]
+
+    amenity_columns = [
+        "% ascensor",
+        "% terraza",
+        "% aire acondicionado",
+        "% parking",
+        "% trastero",
+        "% piscina",
     ]
+    first_amenities = float(first[amenity_columns].mean())
+    second_amenities = float(second[amenity_columns].mean())
+    more_amenities = first["Barrio"] if first_amenities > second_amenities else second["Barrio"]
 
-    st.markdown('<div class="chat-panel advisor-focus">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="chat-header">
-            <div class="advisor-avatar">AI</div>
-            <div>
-                <div class="eyebrow">Conversational intelligence</div>
-                <h2 class="section-title">AI Property Advisor</h2>
-            </div>
-        </div>
-        <div class="chat-bubble chat-ai">
-            La valoración ya está lista. Puedes preguntarme por qué se ha obtenido
-            este precio, cómo influye cada característica de la vivienda o solicitar
-            información adicional sobre el mercado.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    recommendation = (
+        f"{cheaper} ofrece una entrada media m\u00e1s baja, mientras que {pricier_m2} concentra mayor valor por m\u00b2. "
+        f"Para conectividad, destaca {better_connected}; para equipamiento, destaca {more_amenities}."
     )
+    return {
+        "Barrio m\u00e1s econ\u00f3mico": str(cheaper),
+        "Barrio con mayor precio por m\u00b2": str(pricier_m2),
+        "Barrio mejor comunicado": str(better_connected),
+        "Barrio con m\u00e1s amenities": str(more_amenities),
+        "Recomendaci\u00f3n final": recommendation,
+    }
 
-    st.markdown('<div class="suggestion-label">Suggested questions</div>', unsafe_allow_html=True)
-    suggestion_cols = st.columns(2)
-    for index, suggestion in enumerate(suggestions):
-        with suggestion_cols[index % 2]:
-            if st.button(suggestion, key=f"advisor_suggestion_{index}", use_container_width=True):
-                st.session_state.last_advisor_question = suggestion
-                st.session_state.last_advisor_response = agent.process_message(suggestion)
 
-    if st.session_state.get("last_advisor_question") and st.session_state.get("last_advisor_response"):
-        st.markdown(
-            f'<div class="chat-bubble chat-user">{st.session_state.last_advisor_question}</div>',
-            unsafe_allow_html=True,
+def render_large_money(label: str, value: str) -> None:
+    """Render a large money value without st.metric truncation."""
+    st.caption(label)
+    st.write(f"### {value}")
+
+
+def render_neighborhood_card(row: pd.Series) -> None:
+    """Render one neighborhood as a native Streamlit KPI card."""
+    with st.container(border=True):
+        st.subheader(str(row["Barrio"]))
+        price_col, median_col = st.columns(2)
+        with price_col:
+            render_large_money("Precio medio", format_euros(float(row["Precio medio"])))
+        with median_col:
+            render_large_money("Precio mediano", format_euros(float(row["Precio mediano"])))
+
+        m2_col, area_col = st.columns(2)
+        with m2_col:
+            render_large_money("Precio por m\u00b2", format_euros_per_m2(float(row["EUR/m2 medio"])))
+        area_col.metric("Superficie media", f"{float(row['Superficie media']):.1f} m\u00b2")
+
+        rooms_col, baths_col = st.columns(2)
+        rooms_col.metric("Habitaciones", f"{float(row['Habitaciones medias']):.1f}")
+        baths_col.metric("Ba\u00f1os", f"{float(row['Ba\u00f1os medios']):.1f}")
+
+        st.caption("Amenities")
+        lift_col, parking_col, pool_col = st.columns(3)
+        lift_col.metric("Ascensor", f"{float(row['% ascensor']):.1f}%")
+        parking_col.metric("Parking", f"{float(row['% parking']):.1f}%")
+        pool_col.metric("Piscina", f"{float(row['% piscina']):.1f}%")
+
+
+def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
+    """Render grouped bars with raw values for the requested indicators."""
+    indicators = [
+        ("Precio medio", "Precio medio"),
+        ("EUR/m2 medio", "EUR/m\u00b2"),
+    ]
+    chart_rows: list[dict[str, float | str]] = []
+    for source_column, label in indicators:
+        for _, row in comparison.iterrows():
+            value = float(row[source_column])
+            chart_rows.append(
+                {
+                    "Indicador": label,
+                    "Barrio": str(row["Barrio"]),
+                    "Valor": value,
+                    "Valor mostrado": format_euros_per_m2(value) if source_column == "EUR/m2 medio" else format_euros(value),
+                }
+            )
+
+    chart_data = pd.DataFrame(chart_rows)
+    bars = (
+        alt.Chart(chart_data)
+        .mark_bar()
+        .encode(
+            x=alt.X("Barrio:N", title=None),
+            y=alt.Y("Valor:Q", title="Valor en euros"),
+            color=alt.Color("Barrio:N", title="Barrio"),
+            column=alt.Column("Indicador:N", title=None),
+            tooltip=["Barrio:N", "Indicador:N", "Valor mostrado:N"],
         )
-        render_response(st.session_state.last_advisor_response)
-
-    st.markdown(
-        "".join([f'<span class="example-chip">{suggestion}</span>' for suggestion in suggestions[:4]]),
-        unsafe_allow_html=True,
+        .properties(height=280)
+        .resolve_scale(y="independent")
     )
-
-    with st.form("valuation_chat_form"):
-        message = st.text_area(
-            "Ask the advisor",
-            placeholder=f"Analiza el barrio {neighborhood}",
-            height=110,
-        )
-        submitted = st.form_submit_button("Ask AI Property Advisor", use_container_width=True)
-
-    if submitted:
-        if not message.strip():
-            st.warning("Write a question so the advisor can help.")
-        else:
-            st.markdown(f'<div class="chat-bubble chat-user">{message}</div>', unsafe_allow_html=True)
-            response = agent.process_message(message)
-            st.session_state.last_advisor_question = message
-            st.session_state.last_advisor_response = response
-            render_response(response)
-
-            with st.expander("Structured response"):
-                st.json(response)
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.subheader("Comparaci\u00f3n de precio")
+    st.altair_chart(bars, width="stretch")
 
 
-def render_sidebar() -> str:
-    """Render the navigation sidebar."""
-    with st.sidebar:
-        st.markdown("### Idealista")
-        st.markdown("#### Smart Advisor")
-        st.caption("TFM · Data Science & Machine Learning")
-        st.divider()
-        selected_feature = st.radio(
-            "Workspace",
+def render_executive_summary(comparison: pd.DataFrame) -> None:
+    """Render the executive conclusion as native Streamlit components."""
+    summary = build_comparison_summary(comparison)
+    with st.container(border=True):
+        st.subheader("\U0001f3c6 Resumen ejecutivo")
+        c1, c2 = st.columns(2)
+        c1.metric("\U0001f4b6 Barrio m\u00e1s econ\u00f3mico", summary["Barrio m\u00e1s econ\u00f3mico"])
+        c2.metric("\U0001f4c8 Mayor precio por m\u00b2", summary["Barrio con mayor precio por m\u00b2"])
+
+        c3, c4 = st.columns(2)
+        c3.metric("\U0001f687 Mejor comunicado", summary["Barrio mejor comunicado"])
+        c4.metric("\u2728 M\u00e1s amenities", summary["Barrio con m\u00e1s amenities"])
+
+        st.info(f"\U0001f3af {summary['Recomendaci\u00f3n final']}")
+
+
+def render_comparison_dashboard(comparison: pd.DataFrame) -> None:
+    """Render comparison output as an executive dashboard."""
+    left, right = st.columns(2)
+    with left:
+        render_neighborhood_card(comparison.iloc[0])
+    with right:
+        render_neighborhood_card(comparison.iloc[1])
+
+    render_horizontal_comparison_chart(comparison)
+    render_executive_summary(comparison)
+
+
+def render_neighborhood_intelligence(dataset: pd.DataFrame) -> None:
+    """Render module 2: executive two-neighborhood comparison."""
+    st.subheader("Neighbourhood Intelligence")
+    st.info("Compara dos barrios con indicadores de precio, conectividad, amenities y profundidad de muestra.")
+    neighborhoods = get_neighborhoods(dataset)
+    col1, col2 = st.columns(2)
+    with col1:
+        first_neighborhood = st.selectbox("Barrio A", neighborhoods, key="comparison_a")
+    with col2:
+        second_index = 1 if len(neighborhoods) > 1 else 0
+        second_neighborhood = st.selectbox("Barrio B", neighborhoods, index=second_index, key="comparison_b")
+
+    if st.button("Comparar barrios"):
+        comparison = pd.DataFrame(
             [
-                FEATURE_VALUATION,
-                FEATURE_COMPARISON,
-                FEATURE_NEIGHBORHOOD,
-                FEATURE_CHAT,
-            ],
+                summarize_neighborhood(dataset, first_neighborhood),
+                summarize_neighborhood(dataset, second_neighborhood),
+            ]
         )
-        st.divider()
-        st.markdown('<span class="ai-pill">ML backend online</span>', unsafe_allow_html=True)
-        st.caption("Minimal SaaS interface for a production-ready demo.")
+        render_comparison_dashboard(comparison)
 
-    return selected_feature
+
+def normalize_series(series: pd.Series, lower_is_better: bool) -> pd.Series:
+    """Normalize a series to 0-1 with optional lower-is-better direction."""
+    clean = pd.to_numeric(series, errors="coerce").fillna(series.mean())
+    minimum = clean.min()
+    maximum = clean.max()
+    if maximum == minimum:
+        normalized = pd.Series(1.0, index=clean.index)
+    else:
+        normalized = (clean - minimum) / (maximum - minimum)
+    if lower_is_better:
+        normalized = 1 - normalized
+    return normalized
+
+
+def build_investment_ranking(
+    dataset: pd.DataFrame,
+    max_budget: float,
+    min_area: float,
+    min_rooms: int,
+    priority: str,
+) -> pd.DataFrame:
+    """Rank neighborhoods by simple normalized opportunity rules."""
+    filtered = dataset[
+        (pd.to_numeric(dataset[PRICE_COLUMN], errors="coerce") <= max_budget)
+        & (pd.to_numeric(dataset[AREA_COLUMN], errors="coerce") >= min_area)
+        & (pd.to_numeric(dataset[ROOMS_COLUMN], errors="coerce") >= min_rooms)
+    ].copy()
+
+    if filtered.empty:
+        return pd.DataFrame()
+
+    grouped = (
+        filtered.groupby(NEIGHBORHOOD_COLUMN)
+        .agg(
+            Precio_medio=(PRICE_COLUMN, "mean"),
+            EUR_m2_medio=(UNIT_PRICE_COLUMN, "mean"),
+            Superficie_media=(AREA_COLUMN, "mean"),
+            Viviendas_analizadas=(PRICE_COLUMN, "size"),
+            Distancia_centro=(DISTANCE_TO_CITY_CENTER_COLUMN, "mean"),
+            Distancia_metro=(DISTANCE_TO_METRO_COLUMN, "mean"),
+            Ascensor=(HAS_LIFT_COLUMN, "mean"),
+            Terraza=(HAS_TERRACE_COLUMN, "mean"),
+            Aire=(HAS_AIR_CONDITIONING_COLUMN, "mean"),
+            Parking=(HAS_PARKING_COLUMN, "mean"),
+            Trastero=(HAS_BOXROOM_COLUMN, "mean"),
+            Piscina=(HAS_SWIMMING_POOL_COLUMN, "mean"),
+        )
+        .reset_index()
+    )
+    grouped["Amenities"] = grouped[["Ascensor", "Terraza", "Aire", "Parking", "Trastero", "Piscina"]].mean(axis=1) * 100
+
+    price_score = normalize_series(grouped["EUR_m2_medio"], lower_is_better=True)
+    center_score = normalize_series(grouped["Distancia_centro"], lower_is_better=True)
+    metro_score = normalize_series(grouped["Distancia_metro"], lower_is_better=True)
+    amenity_score = normalize_series(grouped["Amenities"], lower_is_better=False)
+    sample_score = normalize_series(grouped["Viviendas_analizadas"], lower_is_better=False)
+
+    if priority == "Precio bajo":
+        score = price_score * 0.55 + center_score * 0.15 + metro_score * 0.15 + amenity_score * 0.10 + sample_score * 0.05
+    elif priority == "Cercan\u00eda al centro":
+        score = center_score * 0.55 + price_score * 0.20 + metro_score * 0.10 + amenity_score * 0.10 + sample_score * 0.05
+    elif priority == "Cercan\u00eda al metro":
+        score = metro_score * 0.55 + price_score * 0.20 + center_score * 0.10 + amenity_score * 0.10 + sample_score * 0.05
+    elif priority == "Amenities":
+        score = amenity_score * 0.55 + price_score * 0.20 + center_score * 0.10 + metro_score * 0.10 + sample_score * 0.05
+    else:
+        score = price_score * 0.30 + center_score * 0.20 + metro_score * 0.20 + amenity_score * 0.20 + sample_score * 0.10
+
+    grouped["Score simple de oportunidad"] = (score * 100).round(2)
+    grouped = grouped.rename(columns={NEIGHBORHOOD_COLUMN: "Barrio"})
+    output_columns = [
+        "Barrio",
+        "Precio_medio",
+        "EUR_m2_medio",
+        "Superficie_media",
+        "Viviendas_analizadas",
+        "Distancia_centro",
+        "Distancia_metro",
+        "Amenities",
+        "Score simple de oportunidad",
+    ]
+    return grouped[output_columns].sort_values("Score simple de oportunidad", ascending=False).head(10)
+
+
+def investment_badge(position: int) -> str:
+    """Return the visual badge for an investment ranking position."""
+    if position == 1:
+        return f"{chr(0x1F947)} Mejor opcion"
+    if position == 2:
+        return f"{chr(0x1F948)} Alternativa recomendada"
+    if position == 3:
+        return f"{chr(0x1F949)} Muy buena opcion"
+    return f"{chr(0x1F4CD)} Opcion adicional"
+
+
+def investment_reasons(row: pd.Series, priority: str) -> list[str]:
+    """Build three concise reasons from the existing ranking indicators."""
+    reasons: list[str] = []
+    if priority == "Precio bajo":
+        reasons.append("Precio por m\u00b2 atractivo")
+    elif priority == "Cercan\u00eda al centro":
+        reasons.append("Cercania relativa al centro")
+    elif priority == "Cercan\u00eda al metro":
+        reasons.append("Buena comunicacion por metro")
+    elif priority == "Amenities":
+        reasons.append("Buen nivel de amenities")
+    else:
+        reasons.append("Buen equilibrio calidad-precio")
+
+    if float(row["Distancia_metro"]) <= 1.0:
+        reasons.append("Buena comunicacion")
+    else:
+        reasons.append("Distancia al metro controlada")
+
+    if int(row["Viviendas_analizadas"]) >= 10:
+        reasons.append("Amplia oferta de viviendas")
+    else:
+        reasons.append("Oferta disponible en el dataset")
+
+    if float(row["Superficie_media"]) >= 70:
+        reasons.append("Superficie media competitiva")
+    else:
+        reasons.append("Encaja con criterios de busqueda")
+
+    unique_reasons: list[str] = []
+    for reason in reasons:
+        if reason not in unique_reasons:
+            unique_reasons.append(reason)
+    return unique_reasons[:3]
+
+
+def render_investment_card(row: pd.Series, position: int, priority: str) -> None:
+    """Render one investment recommendation as a decision card."""
+    with st.container(border=True):
+        st.subheader(f"{position}. {row['Barrio']}")
+        st.caption(investment_badge(position))
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"{chr(0x2B50)} Score de oportunidad", f"{float(row['Score simple de oportunidad']):.2f}")
+        c2.metric(f"{chr(0x1F4B6)} Precio medio", format_euros(float(row["Precio_medio"])))
+        c3.metric(f"{chr(0x1F3E0)} Precio medio EUR/m\u00b2", format_euros(float(row["EUR_m2_medio"])))
+
+        c4, c5, c6 = st.columns(3)
+        c4.metric(f"{chr(0x1F4D0)} Superficie media", f"{float(row['Superficie_media']):.1f} m\u00b2")
+        c5.metric(f"{chr(0x1F687)} Distancia media al metro", f"{float(row['Distancia_metro']):.2f}")
+        c6.metric(f"{chr(0x1F3E1)} Viviendas analizadas", f"{int(row['Viviendas_analizadas'])}")
+
+        st.caption("Por qu\u00e9 lo recomendamos?")
+        check = chr(0x2714)
+        for reason in investment_reasons(row, priority):
+            st.write(f"{check} {reason}")
+
+
+def render_investment_score_chart(ranking: pd.DataFrame) -> None:
+    """Render a simple horizontal bar chart with the top five opportunity scores."""
+    top_five = ranking.head(5).copy()
+    chart = (
+        alt.Chart(top_five)
+        .mark_bar()
+        .encode(
+            x=alt.X("Score simple de oportunidad:Q", title="Score de oportunidad"),
+            y=alt.Y("Barrio:N", title=None, sort="-x"),
+            tooltip=["Barrio:N", "Score simple de oportunidad:Q"],
+        )
+        .properties(height=260)
+    )
+    st.subheader("Score de oportunidad Top 5")
+    st.altair_chart(chart, width="stretch")
+
+
+def render_ai_investment_advisor(ranking: pd.DataFrame, priority: str) -> None:
+    """Render the final rule-based advisor recommendation from available data."""
+    top = ranking.iloc[0]
+    with st.container(border=True):
+        st.subheader(f"{chr(0x1F4A1)} Recomendaci\u00f3n del AI Advisor")
+        st.info(
+            f"Seg\u00fan el presupuesto y la prioridad seleccionados ({priority}), el barrio m\u00e1s recomendable es "
+            f"{top['Barrio']} porque ofrece el mejor equilibrio entre precio, superficie y accesibilidad "
+            f"dentro del conjunto de barrios analizados."
+        )
+
+
+def render_investment_simulator(dataset: pd.DataFrame) -> None:
+    """Render module 3: simple investment simulator."""
+    st.subheader("Investment Simulator")
+    st.info("Ranking orientativo basado solo en dataset.csv. No predice rentabilidad futura.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        max_budget = st.number_input("Presupuesto m\u00e1ximo", min_value=1.0, value=300000.0, step=10000.0)
+        min_area = st.number_input("Superficie m\u00ednima deseada", min_value=1.0, value=60.0, step=5.0)
+    with col2:
+        min_rooms = st.number_input("N\u00famero m\u00ednimo de habitaciones", min_value=0, value=2, step=1)
+        priority = st.selectbox(
+            "Prioridad",
+            [
+                "Precio bajo",
+                "Cercan\u00eda al centro",
+                "Cercan\u00eda al metro",
+                "Amenities",
+                "Equilibrado",
+            ],
+            index=4,
+        )
+
+    if st.button("Buscar oportunidades"):
+        ranking = build_investment_ranking(
+            dataset=dataset,
+            max_budget=float(max_budget),
+            min_area=float(min_area),
+            min_rooms=int(min_rooms),
+            priority=str(priority),
+        )
+        if ranking.empty:
+            st.warning("No hay barrios que cumplan los filtros seleccionados.")
+            return
+
+        st.subheader(f"{chr(0x1F3C6)} Top 5 barrios recomendados")
+        for position, (_, row) in enumerate(ranking.head(5).iterrows(), start=1):
+            render_investment_card(row, position, str(priority))
+
+        render_investment_score_chart(ranking)
+        render_ai_investment_advisor(ranking, str(priority))
+
+
+def render_sidebar(package: dict[str, Any]) -> None:
+    """Render model and dataset metadata in the sidebar."""
+    with st.sidebar:
+        st.title("AI Real Estate Advisor")
+
+        st.subheader("Ciudad")
+        st.caption("Madrid")
+
+        st.subheader("Modelo")
+        st.caption("Random Forest")
+
+        st.subheader("Target")
+        st.caption("Precio de la vivienda (LOG_PRICE)")
+
+        st.subheader("M\u00e9tricas del modelo")
+        metrics = package.get("metrics", {})
+        if isinstance(metrics, dict):
+            if "RMSE" in metrics:
+                rmse = f"{float(metrics['RMSE']):,.0f}".replace(",", ".")
+                st.metric("RMSE", f"{rmse} EUR")
+            if "MAPE" in metrics:
+                mape = f"{float(metrics['MAPE']):.2f}".replace(".", ",")
+                st.metric("MAPE", f"{mape} %")
+            if "Pseudo_R2" in metrics:
+                pseudo_r2 = f"{float(metrics['Pseudo_R2']):.4f}".replace(".", ",")
+                st.metric("Pseudo R2", pseudo_r2)
+
+        st.caption("✓ Menor RMSE y MAPE indican un menor error de predicci\u00f3n.")
+        st.caption("✓ Un mayor Pseudo R2 indica un mejor ajuste del modelo.")
 
 
 def main() -> None:
-    """Run the Streamlit application."""
-    st.set_page_config(
-        page_title=APP_TITLE,
-        page_icon="🏠",
-        layout="wide",
-    )
-    inject_css()
-    agent = get_agent()
-    selected_feature = render_sidebar()
-    render_header()
+    """Run the definitive MVP app."""
+    st.title("AI Real Estate Advisor")
+    st.caption("Plataforma PropTech de valoraci\u00f3n inmobiliaria con Machine Learning, datos de mercado e IA conversacional.")
 
-    if selected_feature == FEATURE_VALUATION:
-        current_step = 4 if st.session_state.get("last_valuation_response", {}).get("success") else 1
-        render_flow_steps(current_step)
-        render_property_features(agent)
-    elif selected_feature == FEATURE_COMPARISON:
-        render_comparison_form(agent)
-        render_chat_mode(agent)
-    elif selected_feature == FEATURE_NEIGHBORHOOD:
-        render_neighborhood_form(agent)
-        render_chat_mode(agent)
-    elif selected_feature == FEATURE_CHAT:
-        render_chat_mode(agent)
+    dataset = load_dataset()
+    package = load_model_package()
+    render_sidebar(package)
+
+
+    valuation_tab, intelligence_tab, investment_tab = st.tabs(
+        [
+            "AI Property Valuation",
+            "Neighbourhood Intelligence",
+            "Investment Simulator",
+        ]
+    )
+    with valuation_tab:
+        render_property_valuation(dataset, package)
+    with intelligence_tab:
+        render_neighborhood_intelligence(dataset)
+    with investment_tab:
+        render_investment_simulator(dataset)
+
 
 
 if __name__ == "__main__":

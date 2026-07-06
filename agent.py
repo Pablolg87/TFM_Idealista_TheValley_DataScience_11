@@ -6,11 +6,13 @@ predict.py or advisor.py, and always returns a structured dictionary.
 """
 
 import re
+import unicodedata
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
 
 import advisor
+import config
 import predict
 
 
@@ -18,6 +20,8 @@ INTENT_VALUATION = "valuation"
 INTENT_NEIGHBORHOOD_ANALYSIS = "neighborhood_analysis"
 INTENT_NEIGHBORHOOD_COMPARISON = "neighborhood_comparison"
 INTENT_BUDGET_RECOMMENDATION = "budget_recommendation"
+INTENT_CONTEXTUAL_ADVICE = "contextual_advice"
+INTENT_DEMO_PROPERTY = "demo_property"
 INTENT_UNKNOWN = "unknown"
 
 INTENT_ALIASES = {
@@ -31,6 +35,12 @@ INTENT_ALIASES = {
 def _normalize_text(value: str) -> str:
     """Normalize text for simple rule-based interpretation."""
     return value.strip().casefold()
+
+
+def _normalize_for_matching(value: str) -> str:
+    """Normalize text for accent-insensitive matching."""
+    normalized = unicodedata.normalize("NFKD", str(value).casefold().strip())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
 
 
 def _get_request_text(request: str | Mapping[str, Any]) -> str:
@@ -60,6 +70,9 @@ def detect_intent(request: str | Mapping[str, Any]) -> str:
             return _canonical_intent(explicit_intent)
 
     text = _normalize_text(_get_request_text(request))
+
+    if any(keyword in text for keyword in ("por que", "por qué", "influye", "influencia", "este precio", "barrio caro", "caro", "comunicado", "comunicacion", "comunicación", "piscina")):
+        return INTENT_CONTEXTUAL_ADVICE
 
     if any(
         keyword in text
@@ -102,16 +115,31 @@ def _known_neighborhoods() -> tuple[str, ...]:
 
 def _extract_neighborhoods(text: str) -> list[str]:
     """Extract known neighborhood names mentioned in text."""
-    normalized_text = _normalize_text(text)
+    normalized_text = _normalize_for_matching(text)
     neighborhoods: list[str] = []
 
     for neighborhood in _known_neighborhoods():
-        normalized_neighborhood = _normalize_text(neighborhood)
+        normalized_neighborhood = _normalize_for_matching(neighborhood)
         pattern = rf"(?<!\w){re.escape(normalized_neighborhood)}(?!\w)"
         if re.search(pattern, normalized_text):
             neighborhoods.append(neighborhood)
 
     return neighborhoods
+
+
+def _extract_neighborhood_query(text: str) -> str | None:
+    """Extract a raw neighborhood phrase when it is not an exact dataset value."""
+    patterns = [
+        r"(?:barrio|zona)\s+(?:de\s+)?([a-zA-ZÀ-ÿ0-9 '\-]+)",
+        r"analiza(?:r)?\s+(?:el\s+|la\s+)?(?:barrio\s+|zona\s+)?(?:de\s+)?([a-zA-ZÀ-ÿ0-9 '\-]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip(" .,:;¿?")
+            if candidate:
+                return candidate
+    return None
 
 
 def _parse_number(value: str) -> float:
@@ -132,15 +160,17 @@ def _extract_first_number(patterns: list[str], text: str) -> float | None:
     return None
 
 
-def _extract_boolean_feature(text: str, keyword: str) -> int:
+def _extract_boolean_feature(text: str, keywords: tuple[str, ...]) -> int:
     """Extract simple yes/no equipment mentions from text."""
     normalized_text = _normalize_text(text)
 
-    if f"sin {keyword}" in normalized_text:
-        return 0
+    for keyword in keywords:
+        if f"sin {keyword}" in normalized_text:
+            return 0
 
-    if f"con {keyword}" in normalized_text or keyword in normalized_text:
-        return 1
+    for keyword in keywords:
+        if f"con {keyword}" in normalized_text or keyword in normalized_text:
+            return 1
 
     return 0
 
@@ -165,6 +195,10 @@ def extract_entities(request: str | Mapping[str, Any]) -> dict[str, Any]:
     if neighborhoods:
         entities["neighborhoods"] = list(neighborhoods)
         entities.setdefault("neighborhood", list(neighborhoods)[0])
+    elif text:
+        neighborhood_query = _extract_neighborhood_query(text)
+        if neighborhood_query:
+            entities["neighborhood_query"] = neighborhood_query
 
     budget = entities.get("budget")
     if budget is None:
@@ -178,41 +212,39 @@ def extract_entities(request: str | Mapping[str, Any]) -> dict[str, Any]:
     if budget is not None:
         entities["budget"] = float(budget)
 
-    area = entities.get("CONSTRUCTEDAREA")
+    area = entities.get(config.AREA_COLUMN)
     if area is None:
         area = _extract_first_number(
             [r"(\d[\d.,]*)\s*(?:m2|m²|metros)"],
             text,
         )
     if area is not None:
-        entities["CONSTRUCTEDAREA"] = float(area)
+        entities[config.AREA_COLUMN] = float(area)
 
-    rooms = entities.get("ROOMNUMBER")
+    rooms = entities.get(config.ROOMS_COLUMN)
     if rooms is None:
         rooms = _extract_first_number(
             [r"(\d+)\s*(?:habitacion|habitaciones|dormitorio|dormitorios)"],
             text,
         )
     if rooms is not None:
-        entities["ROOMNUMBER"] = int(rooms)
+        entities[config.ROOMS_COLUMN] = int(rooms)
 
-    bathrooms = entities.get("BATHNUMBER")
+    bathrooms = entities.get(config.BATHROOMS_COLUMN)
     if bathrooms is None:
         bathrooms = _extract_first_number(
             [r"(\d+)\s*(?:bano|banos|baño|baños)"],
             text,
         )
     if bathrooms is not None:
-        entities["BATHNUMBER"] = int(bathrooms)
+        entities[config.BATHROOMS_COLUMN] = int(bathrooms)
 
-    entities.setdefault("HASLIFT", _extract_boolean_feature(text, "ascensor"))
-    entities.setdefault("HASTERRACE", _extract_boolean_feature(text, "terraza"))
-    entities.setdefault("HASPARKINGSPACE", _extract_boolean_feature(text, "parking"))
-    normalized_text = _normalize_text(text)
-    if "sin garaje" in normalized_text:
-        entities["HASPARKINGSPACE"] = 0
-    elif "garaje" in normalized_text:
-        entities["HASPARKINGSPACE"] = 1
+    entities.setdefault(config.HAS_LIFT_COLUMN, _extract_boolean_feature(text, ("ascensor",)))
+    entities.setdefault(config.HAS_TERRACE_COLUMN, _extract_boolean_feature(text, ("terraza",)))
+    entities.setdefault(config.HAS_PARKING_COLUMN, _extract_boolean_feature(text, ("parking", "garaje")))
+    entities.setdefault(config.HAS_AIR_CONDITIONING_COLUMN, _extract_boolean_feature(text, ("aire acondicionado", "aire")))
+    entities.setdefault(config.HAS_BOXROOM_COLUMN, _extract_boolean_feature(text, ("trastero",)))
+    entities.setdefault(config.HAS_SWIMMING_POOL_COLUMN, _extract_boolean_feature(text, ("piscina",)))
 
     return entities
 
@@ -258,38 +290,54 @@ def _require_fields(entities: Mapping[str, Any], fields: list[str]) -> None:
 
 def _route_valuation(entities: Mapping[str, Any]) -> dict[str, Any]:
     """Route a valuation request to predict.py."""
-    if "LOCATIONNAME" not in entities and "neighborhood" in entities:
-        location_name = entities["neighborhood"]
-    else:
-        location_name = entities.get("LOCATIONNAME")
-
+    location_name = entities.get(config.NEIGHBORHOOD_COLUMN, entities.get("neighborhood"))
     payload = {
-        "LOCATIONNAME": location_name,
-        "CONSTRUCTEDAREA": entities.get("CONSTRUCTEDAREA"),
-        "ROOMNUMBER": entities.get("ROOMNUMBER"),
-        "BATHNUMBER": entities.get("BATHNUMBER"),
-        "HASLIFT": int(entities.get("HASLIFT", 0)),
-        "HASTERRACE": int(entities.get("HASTERRACE", 0)),
-        "HASPARKINGSPACE": int(entities.get("HASPARKINGSPACE", 0)),
+        config.NEIGHBORHOOD_COLUMN: location_name,
+        config.AREA_COLUMN: entities.get(config.AREA_COLUMN),
+        config.ROOMS_COLUMN: entities.get(config.ROOMS_COLUMN),
+        config.BATHROOMS_COLUMN: entities.get(config.BATHROOMS_COLUMN),
+        config.HAS_TERRACE_COLUMN: int(entities.get(config.HAS_TERRACE_COLUMN, 0)),
+        config.HAS_LIFT_COLUMN: int(entities.get(config.HAS_LIFT_COLUMN, 0)),
+        config.HAS_AIR_CONDITIONING_COLUMN: int(entities.get(config.HAS_AIR_CONDITIONING_COLUMN, 0)),
+        config.HAS_PARKING_COLUMN: int(entities.get(config.HAS_PARKING_COLUMN, 0)),
+        config.HAS_BOXROOM_COLUMN: int(entities.get(config.HAS_BOXROOM_COLUMN, 0)),
+        config.HAS_SWIMMING_POOL_COLUMN: int(entities.get(config.HAS_SWIMMING_POOL_COLUMN, 0)),
     }
     _require_fields(
         payload,
-        ["LOCATIONNAME", "CONSTRUCTEDAREA", "ROOMNUMBER", "BATHNUMBER"],
+        [config.NEIGHBORHOOD_COLUMN, config.AREA_COLUMN, config.ROOMS_COLUMN, config.BATHROOMS_COLUMN],
     )
     prediction = predict.predict_price(payload)
+    neighborhood = str(payload[config.NEIGHBORHOOD_COLUMN])
 
     return {
         "estimated_price": float(prediction),
         "input": payload,
+        "neighborhood_intelligence": advisor.get_neighborhood_intelligence(neighborhood),
     }
 
 
 def _route_neighborhood_analysis(entities: Mapping[str, Any]) -> dict[str, Any]:
     """Route a neighborhood analysis request to advisor.py."""
     neighborhood = entities.get("neighborhood")
-    _require_fields({"neighborhood": neighborhood}, ["neighborhood"])
+    if not neighborhood:
+        query = str(entities.get("neighborhood_query", "")).strip()
+        suggestions = advisor.suggest_neighborhoods(query) if query else []
+        if suggestions:
+            available = ", ".join(suggestions)
+            raise ValueError(
+                f"No encuentro '{query}' como barrio exacto en el dataset. "
+                f"Puedes probar con: {available}."
+            )
+        raise ValueError(
+            "No he podido identificar el barrio. Prueba con un nombre disponible como Palacio, Sol o Goya."
+        )
 
-    return advisor.get_neighborhood_stats(neighborhood=str(neighborhood))
+    stats = advisor.get_neighborhood_stats(neighborhood=str(neighborhood))
+    stats["neighborhood_intelligence"] = advisor.get_neighborhood_intelligence(
+        neighborhood=str(neighborhood)
+    )
+    return stats
 
 
 def _route_neighborhood_comparison(entities: Mapping[str, Any]) -> dict[str, Any]:
@@ -321,13 +369,91 @@ def _route_property_comparison(entities: Mapping[str, Any]) -> dict[str, Any]:
         ["neighborhood", "property_price"],
     )
 
-    return advisor.compare_property_with_neighborhood(
+    comparison = advisor.compare_property_with_neighborhood(
         neighborhood=str(neighborhood),
         property_price=float(property_price),
     )
+    comparison["neighborhood_intelligence"] = advisor.get_neighborhood_intelligence(
+        neighborhood=str(neighborhood)
+    )
+    return comparison
 
 
-def handle_request(request: str | Mapping[str, Any]) -> dict[str, Any]:
+def _route_demo_property() -> dict[str, Any]:
+    """Load a real dataset property and value it with the active model."""
+    demo = advisor.get_demo_property()
+    valuation = _route_valuation(demo["input"])
+    return {
+        **demo,
+        "estimated_price": valuation["estimated_price"],
+        "neighborhood_intelligence": valuation["neighborhood_intelligence"],
+    }
+
+
+def _route_contextual_advice(
+    text: str,
+    last_valuation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Answer simple follow-up questions using the latest valuation context."""
+    if not last_valuation:
+        raise ValueError("Primero necesito una valoracion para poder contextualizar la respuesta.")
+
+    data = last_valuation.get("data", last_valuation)
+    input_data = data.get("input", {})
+    intelligence = data.get("neighborhood_intelligence", {})
+    estimated_price = float(data.get("estimated_price", 0) or 0)
+    area = float(input_data.get(config.AREA_COLUMN, 0) or 0)
+    unit_price = estimated_price / area if area > 0 else 0
+    normalized_text = _normalize_text(text)
+
+    response_parts = [
+        f"La ultima valoracion estima la vivienda en {estimated_price:,.0f} euros",
+        f"equivalente a {unit_price:,.0f} euros/m2" if unit_price else "",
+    ]
+
+    if "caro" in normalized_text:
+        response_parts.append(
+            "El barrio tiene un nivel relativo de precio "
+            f"{intelligence.get('relative_price_level', 'no disponible')} "
+            f"frente a Madrid ({float(intelligence.get('relative_price_percent', 0) or 0):.2f}%)."
+        )
+    elif "comunic" in normalized_text:
+        response_parts.append(
+            "La conectividad se aproxima con las distancias medias del dataset: "
+            f"centro {float(intelligence.get('distance_to_city_center', 0) or 0):.2f}, "
+            f"Castellana {float(intelligence.get('distance_to_castellana', 0) or 0):.2f}, "
+            f"metro {float(intelligence.get('distance_to_metro', 0) or 0):.2f}."
+        )
+    elif "piscina" in normalized_text:
+        if int(input_data.get(config.HAS_SWIMMING_POOL_COLUMN, 0)) == 1:
+            response_parts.append("La valoracion ya incluye piscina como caracteristica de la vivienda.")
+        else:
+            simulated_input = dict(input_data)
+            simulated_input[config.HAS_SWIMMING_POOL_COLUMN] = 1
+            simulated_price = predict.predict_price(simulated_input)
+            response_parts.append(
+                "Si la vivienda tuviera piscina, el modelo estimaria aproximadamente "
+                f"{simulated_price:,.0f} euros, una diferencia de {simulated_price - estimated_price:,.0f} euros."
+            )
+    else:
+        response_parts.append(
+            "El precio se explica por la superficie, habitaciones, banos, amenities "
+            "y por el contexto del barrio calculado desde el dataset: precio medio, "
+            "distancias y precio medio por m2 de la zona."
+        )
+
+    return {
+        "estimated_price": estimated_price,
+        "input": input_data,
+        "neighborhood_intelligence": intelligence,
+        "answer": " ".join(part for part in response_parts if part),
+    }
+
+
+def handle_request(
+    request: str | Mapping[str, Any],
+    last_valuation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Identify intent, extract entities, delegate work, and return one response."""
     intent = detect_intent(request)
     entities = extract_entities(request)
@@ -353,10 +479,18 @@ def handle_request(request: str | Mapping[str, Any]) -> dict[str, Any]:
         elif intent == "property_comparison":
             data = _route_property_comparison(entities)
             message = "He comparado la vivienda con la media del barrio."
+        elif intent == INTENT_DEMO_PROPERTY:
+            data = _route_demo_property()
+            message = "He cargado una vivienda real del dataset y generado su valoracion."
+        elif intent == INTENT_CONTEXTUAL_ADVICE:
+            data = _route_contextual_advice(_get_request_text(request), last_valuation)
+            message = data["answer"]
         else:
             raise ValueError("No he reconocido la intencion de la solicitud.")
     except Exception as exc:
-        return _error_response(intent=response_intent, error=str(exc))
+        error_text = str(exc)
+        friendly_message = error_text if "No encuentro" in error_text or "No he podido identificar" in error_text else None
+        return _error_response(intent=response_intent, error=error_text, message=friendly_message)
 
     return _success_response(intent=response_intent, data=data, message=message)
 
@@ -364,10 +498,29 @@ def handle_request(request: str | Mapping[str, Any]) -> dict[str, Any]:
 class SmartAdvisorAgent:
     """Stable facade for the Smart Advisor routing layer."""
 
+    def __init__(self) -> None:
+        """Initialize the agent with optional valuation memory."""
+        self.last_valuation_response: dict[str, Any] | None = None
+
     def process_request(self, request: str | Mapping[str, Any]) -> dict[str, Any]:
         """Process a structured or natural-language request."""
-        return handle_request(request)
+        response = handle_request(request, self.last_valuation_response)
+        if response.get("success") and response.get("intent") in {INTENT_VALUATION, INTENT_DEMO_PROPERTY}:
+            if response.get("intent") == INTENT_DEMO_PROPERTY:
+                valuation_data = {
+                    "estimated_price": response["data"].get("estimated_price"),
+                    "input": response["data"].get("input", {}),
+                    "neighborhood_intelligence": response["data"].get("neighborhood_intelligence", {}),
+                }
+                self.last_valuation_response = _success_response(
+                    INTENT_VALUATION,
+                    valuation_data,
+                    "He estimado el precio de la vivienda.",
+                )
+            else:
+                self.last_valuation_response = response
+        return response
 
     def process_message(self, message: str) -> dict[str, Any]:
         """Process a natural-language message."""
-        return handle_request(message)
+        return self.process_request(message)
