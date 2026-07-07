@@ -225,4 +225,5 @@ __pycache__/
 *.pyc
 
 # Modelo grande local
+models/best_rf_model_package.pkl
 models/model.pkl

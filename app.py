@@ -14,12 +14,14 @@ import joblib
 import numpy as np
 import pandas as pd
 import pydeck as pdk
+import requests
 import streamlit as st
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = BASE_DIR / "data" / "dataset.csv"
 MODEL_PACKAGE_PATH = BASE_DIR / "models" / "best_rf_model_package.pkl"
+MODEL_PACKAGE_URL = "https://drive.google.com/uc?export=download&id=1GraR1z71RvUGuM4I_wi6VZr6xiubP3U2"
 
 PRICE_COLUMN = "PRICE"
 UNIT_PRICE_COLUMN = "UNITPRICE"
@@ -267,8 +269,24 @@ def load_dataset() -> pd.DataFrame:
     return dataset.dropna(subset=[NEIGHBORHOOD_COLUMN]).copy()
 
 
+def download_model_package() -> bool:
+    """Download the model package when it is not available locally."""
+    MODEL_PACKAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        response = requests.get(MODEL_PACKAGE_URL, timeout=120)
+        response.raise_for_status()
+        MODEL_PACKAGE_PATH.write_bytes(response.content)
+        return True
+    except requests.RequestException:
+        st.error("No se ha podido descargar el modelo. Revisa la conexión o el enlace configurado.")
+        return False
+
+
 def load_model_package() -> dict[str, Any]:
     """Load the definitive Random Forest package."""
+    if not MODEL_PACKAGE_PATH.exists() and not download_model_package():
+        st.stop()
+
     package = joblib.load(MODEL_PACKAGE_PATH)
     if not isinstance(package, dict):
         raise TypeError("Model package must be a dictionary.")
