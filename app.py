@@ -14,7 +14,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import pydeck as pdk
-import requests
+import gdown
 import streamlit as st
 
 
@@ -273,12 +273,15 @@ def download_model_package() -> bool:
     """Download the model package when it is not available locally."""
     MODEL_PACKAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
-        response = requests.get(MODEL_PACKAGE_URL, timeout=120)
-        response.raise_for_status()
-        MODEL_PACKAGE_PATH.write_bytes(response.content)
-        return True
-    except requests.RequestException:
-        st.error("No se ha podido descargar el modelo. Revisa la conexión o el enlace configurado.")
+        output = gdown.download(
+            MODEL_PACKAGE_URL,
+            str(MODEL_PACKAGE_PATH),
+            quiet=False,
+            fuzzy=True,
+        )
+        return output is not None and MODEL_PACKAGE_PATH.exists()
+    except Exception:
+        st.error("No se ha podido descargar el modelo. Revisa la conexi\u00f3n o el enlace configurado.")
         return False
 
 
