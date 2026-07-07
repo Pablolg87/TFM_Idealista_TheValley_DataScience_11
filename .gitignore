@@ -223,3 +223,6 @@ git add .gitignore
 # Caché de Python
 __pycache__/
 *.pyc
+
+# Modelo grande local
+models/model.pkl
