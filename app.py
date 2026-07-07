@@ -13,6 +13,7 @@ import altair as alt
 import joblib
 import numpy as np
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
 
 
@@ -86,6 +87,174 @@ CONVERSATION_STEPS = [
     (HAS_SWIMMING_POOL_COLUMN, "Piscina"),
 ]
 
+
+
+def apply_visual_theme() -> None:
+    """Apply a lightweight PropTech visual theme."""
+    st.markdown(
+        """
+        <style>
+            :root {
+                --primary: #97C93D;
+                --primary-dark: #6FAE2A;
+                --success-soft: #EAF7D8;
+                --background: #F8F9FA;
+                --card: #FFFFFF;
+                --border: #E5E7EB;
+                --text: #222222;
+                --muted: #6B7280;
+                --info-soft: #EEF6FF;
+                --warning-soft: #FFF8D6;
+                --shadow: 0 8px 24px rgba(34, 34, 34, 0.06);
+            }
+
+            .stApp {
+                background: var(--background);
+                color: var(--text);
+            }
+
+            .block-container {
+                padding-top: 2.2rem;
+                padding-bottom: 3rem;
+                max-width: 1180px;
+            }
+
+            h1, h2, h3 {
+                color: var(--text);
+                letter-spacing: 0;
+            }
+
+            h1 {
+                margin-bottom: 0.25rem;
+            }
+
+            h2, h3 {
+                margin-top: 1.4rem;
+            }
+
+            div[data-testid="stVerticalBlock"] {
+                gap: 1.05rem;
+            }
+
+            div[data-testid="stVerticalBlockBorderWrapper"] {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                box-shadow: var(--shadow);
+                padding: 0.35rem;
+            }
+
+            div[data-testid="stMetric"] {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 14px;
+                box-shadow: 0 6px 18px rgba(34, 34, 34, 0.045);
+                padding: 0.85rem 1rem;
+            }
+
+            div[data-testid="stMetricLabel"] p {
+                color: var(--muted);
+                font-weight: 600;
+            }
+
+            div[data-testid="stMetricValue"] {
+                color: var(--primary-dark);
+                font-weight: 800;
+            }
+
+            div.stButton > button,
+            button[kind="primary"],
+            button[kind="secondary"] {
+                background: var(--primary) !important;
+                color: #FFFFFF !important;
+                border: 1px solid var(--primary) !important;
+                border-radius: 10px !important;
+                box-shadow: 0 8px 18px rgba(151, 201, 61, 0.24);
+                font-weight: 700;
+                transition: all 160ms ease;
+            }
+
+            div.stButton > button:hover,
+            button[kind="primary"]:hover,
+            button[kind="secondary"]:hover {
+                background: var(--primary-dark) !important;
+                border-color: var(--primary-dark) !important;
+                color: #FFFFFF !important;
+                box-shadow: 0 10px 22px rgba(111, 174, 42, 0.24);
+                transform: translateY(-1px);
+            }
+
+            section[data-testid="stSidebar"] {
+                background: #FFFFFF;
+                border-right: 1px solid var(--border);
+            }
+
+            section[data-testid="stSidebar"] h1::after {
+                content: "";
+                display: block;
+                width: 52px;
+                height: 4px;
+                margin-top: 0.55rem;
+                border-radius: 999px;
+                background: var(--primary);
+            }
+
+            div[data-testid="stAlert"] {
+                border-radius: 14px;
+                border: 1px solid var(--border);
+                box-shadow: 0 6px 18px rgba(34, 34, 34, 0.035);
+            }
+
+            div[data-testid="stAlert"]:has([data-testid="stMarkdownContainer"]) {
+                background: var(--info-soft);
+            }
+
+            div[data-testid="stChatMessage"] {
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                box-shadow: 0 5px 16px rgba(34, 34, 34, 0.035);
+                margin-bottom: 0.75rem;
+            }
+
+            div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+                background: var(--success-soft);
+            }
+
+            div[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+                background: #F3F4F6;
+            }
+
+            div[data-testid="stChatInput"] textarea {
+                border-radius: 14px;
+                border-color: var(--border);
+                box-shadow: 0 6px 18px rgba(34, 34, 34, 0.045);
+            }
+
+            div[data-testid="stTabs"] button[aria-selected="true"] {
+                color: var(--primary-dark);
+                border-bottom-color: var(--primary) !important;
+                font-weight: 700;
+            }
+
+            div[data-testid="stCaptionContainer"] {
+                color: var(--muted);
+            }
+
+            @media (max-width: 768px) {
+                .block-container {
+                    padding-left: 1rem;
+                    padding-right: 1rem;
+                    padding-top: 1.4rem;
+                }
+
+                div[data-testid="stMetric"] {
+                    padding: 0.75rem;
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def load_dataset() -> pd.DataFrame:
     """Load the cleaned Madrid real estate dataset."""
@@ -658,6 +827,15 @@ def render_large_money(label: str, value: str) -> None:
     st.write(f"### {value}")
 
 
+
+def render_amenity_progress(label: str, percentage: float) -> None:
+    """Render an amenity percentage with a progress bar."""
+    clean_percentage = max(0.0, min(float(percentage), 100.0))
+    label_col, value_col = st.columns([2, 1])
+    label_col.caption(label)
+    value_col.caption(f"{clean_percentage:.1f} %")
+    st.progress(clean_percentage / 100)
+
 def render_neighborhood_card(row: pd.Series) -> None:
     """Render one neighborhood as a native Streamlit KPI card."""
     with st.container(border=True):
@@ -678,10 +856,9 @@ def render_neighborhood_card(row: pd.Series) -> None:
         baths_col.metric("Ba\u00f1os", f"{float(row['Ba\u00f1os medios']):.1f}")
 
         st.caption("Amenities")
-        lift_col, parking_col, pool_col = st.columns(3)
-        lift_col.metric("Ascensor", f"{float(row['% ascensor']):.1f}%")
-        parking_col.metric("Parking", f"{float(row['% parking']):.1f}%")
-        pool_col.metric("Piscina", f"{float(row['% piscina']):.1f}%")
+        render_amenity_progress("Ascensor", float(row["% ascensor"]))
+        render_amenity_progress("Parking", float(row["% parking"]))
+        render_amenity_progress("Piscina", float(row["% piscina"]))
 
 
 def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
@@ -822,22 +999,24 @@ def build_investment_ranking(
     )
     grouped["Amenities"] = grouped[["Ascensor", "Terraza", "Aire", "Parking", "Trastero", "Piscina"]].mean(axis=1) * 100
 
+    raw_budget_score = 1 - (grouped["Precio_medio"] - max_budget).abs() / max_budget
+    budget_score = normalize_series(raw_budget_score.clip(lower=0, upper=1), lower_is_better=False)
+    within_budget_bonus = grouped["Precio_medio"].le(max_budget) * 0.05
+    budget_score = (budget_score + within_budget_bonus).clip(upper=1.0)
     price_score = normalize_series(grouped["EUR_m2_medio"], lower_is_better=True)
-    center_score = normalize_series(grouped["Distancia_centro"], lower_is_better=True)
+    area_score = normalize_series(grouped["Superficie_media"], lower_is_better=False)
     metro_score = normalize_series(grouped["Distancia_metro"], lower_is_better=True)
     amenity_score = normalize_series(grouped["Amenities"], lower_is_better=False)
     sample_score = normalize_series(grouped["Viviendas_analizadas"], lower_is_better=False)
 
-    if priority == "Precio bajo":
-        score = price_score * 0.55 + center_score * 0.15 + metro_score * 0.15 + amenity_score * 0.10 + sample_score * 0.05
-    elif priority == "Cercan\u00eda al centro":
-        score = center_score * 0.55 + price_score * 0.20 + metro_score * 0.10 + amenity_score * 0.10 + sample_score * 0.05
-    elif priority == "Cercan\u00eda al metro":
-        score = metro_score * 0.55 + price_score * 0.20 + center_score * 0.10 + amenity_score * 0.10 + sample_score * 0.05
-    elif priority == "Amenities":
-        score = amenity_score * 0.55 + price_score * 0.20 + center_score * 0.10 + metro_score * 0.10 + sample_score * 0.05
-    else:
-        score = price_score * 0.30 + center_score * 0.20 + metro_score * 0.20 + amenity_score * 0.20 + sample_score * 0.10
+    score = (
+        budget_score * 0.40
+        + price_score * 0.20
+        + area_score * 0.15
+        + metro_score * 0.10
+        + amenity_score * 0.10
+        + sample_score * 0.05
+    )
 
     grouped["Score simple de oportunidad"] = (score * 100).round(2)
     grouped = grouped.rename(columns={NEIGHBORHOOD_COLUMN: "Barrio"})
@@ -858,12 +1037,12 @@ def build_investment_ranking(
 def investment_badge(position: int) -> str:
     """Return the visual badge for an investment ranking position."""
     if position == 1:
-        return f"{chr(0x1F947)} Mejor opcion"
+        return f"{chr(0x1F947)} Mejor opci\u00f3n"
     if position == 2:
         return f"{chr(0x1F948)} Alternativa recomendada"
     if position == 3:
-        return f"{chr(0x1F949)} Muy buena opcion"
-    return f"{chr(0x1F4CD)} Opcion adicional"
+        return f"{chr(0x1F949)} Muy buena opci\u00f3n"
+    return f"{chr(0x1F4CD)} Opci\u00f3n adicional"
 
 
 def investment_reasons(row: pd.Series, priority: str) -> list[str]:
@@ -872,16 +1051,16 @@ def investment_reasons(row: pd.Series, priority: str) -> list[str]:
     if priority == "Precio bajo":
         reasons.append("Precio por m\u00b2 atractivo")
     elif priority == "Cercan\u00eda al centro":
-        reasons.append("Cercania relativa al centro")
+        reasons.append("Cercan\u00eda relativa al centro")
     elif priority == "Cercan\u00eda al metro":
-        reasons.append("Buena comunicacion por metro")
+        reasons.append("Buena comunicaci\u00f3n por metro")
     elif priority == "Amenities":
         reasons.append("Buen nivel de amenities")
     else:
         reasons.append("Buen equilibrio calidad-precio")
 
     if float(row["Distancia_metro"]) <= 1.0:
-        reasons.append("Buena comunicacion")
+        reasons.append("Buena comunicaci\u00f3n")
     else:
         reasons.append("Distancia al metro controlada")
 
@@ -893,7 +1072,7 @@ def investment_reasons(row: pd.Series, priority: str) -> list[str]:
     if float(row["Superficie_media"]) >= 70:
         reasons.append("Superficie media competitiva")
     else:
-        reasons.append("Encaja con criterios de busqueda")
+        reasons.append("Encaja con criterios de b\u00fasqueda")
 
     unique_reasons: list[str] = []
     for reason in reasons:
@@ -911,7 +1090,7 @@ def render_investment_card(row: pd.Series, position: int, priority: str) -> None
         c1, c2, c3 = st.columns(3)
         c1.metric(f"{chr(0x2B50)} Score de oportunidad", f"{float(row['Score simple de oportunidad']):.2f}")
         c2.metric(f"{chr(0x1F4B6)} Precio medio", format_euros(float(row["Precio_medio"])))
-        c3.metric(f"{chr(0x1F3E0)} Precio medio EUR/m\u00b2", format_euros(float(row["EUR_m2_medio"])))
+        c3.metric(f"{chr(0x1F3E0)} Precio medio EUR/m\u00b2", format_euros_per_m2(float(row["EUR_m2_medio"])))
 
         c4, c5, c6 = st.columns(3)
         c4.metric(f"{chr(0x1F4D0)} Superficie media", f"{float(row['Superficie_media']):.1f} m\u00b2")
@@ -941,6 +1120,64 @@ def render_investment_score_chart(ranking: pd.DataFrame) -> None:
     st.altair_chart(chart, width="stretch")
 
 
+def investment_map_data(dataset: pd.DataFrame, ranking: pd.DataFrame) -> pd.DataFrame:
+    """Build neighborhood mean coordinates for the recommended ranking."""
+    required_columns = {NEIGHBORHOOD_COLUMN, "LATITUDE", "LONGITUDE"}
+    if not required_columns.issubset(dataset.columns):
+        return pd.DataFrame()
+
+    top_neighborhoods = ranking.head(5)["Barrio"].astype(str).tolist()
+    rows = dataset[dataset[NEIGHBORHOOD_COLUMN].astype(str).isin(top_neighborhoods)].copy()
+    if rows.empty:
+        return pd.DataFrame()
+
+    coordinates = (
+        rows.groupby(NEIGHBORHOOD_COLUMN)
+        .agg(latitude=("LATITUDE", "mean"), longitude=("LONGITUDE", "mean"))
+        .reset_index()
+        .rename(columns={NEIGHBORHOOD_COLUMN: "Barrio"})
+    )
+    output = coordinates.merge(ranking.head(5), on="Barrio", how="inner")
+    output = output.dropna(subset=["latitude", "longitude"])
+    output["score"] = output["Score simple de oportunidad"].round(2)
+    output["precio_medio"] = output["Precio_medio"].map(format_euros)
+    output["eur_m2"] = output["EUR_m2_medio"].map(format_euros_per_m2)
+    return output
+
+
+def render_recommended_neighborhoods_map(dataset: pd.DataFrame, ranking: pd.DataFrame) -> None:
+    """Render Madrid map with the top five recommended neighborhoods."""
+    st.subheader("Mapa de barrios recomendados")
+    map_data = investment_map_data(dataset, ranking)
+    if map_data.empty:
+        st.info(
+            "El mapa requiere geometr\u00edas o coordenadas de barrio. "
+            "No se han encontrado datos geogr\u00e1ficos suficientes en el dataset."
+        )
+        return
+
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=map_data,
+        get_position="[longitude, latitude]",
+        get_radius=280,
+        get_fill_color=[151, 201, 61, 185],
+        get_line_color=[111, 174, 42, 255],
+        line_width_min_pixels=2,
+        pickable=True,
+    )
+    view_state = pdk.ViewState(latitude=40.4168, longitude=-3.7038, zoom=10.4, pitch=0)
+    deck = pdk.Deck(
+        map_style=None,
+        initial_view_state=view_state,
+        layers=[layer],
+        tooltip={
+            "text": "{Barrio}\nScore: {score}\nPrecio medio: {precio_medio}\nEUR/m2 medio: {eur_m2}"
+        },
+    )
+    st.pydeck_chart(deck, width="stretch")
+
+
 def render_ai_investment_advisor(ranking: pd.DataFrame, priority: str) -> None:
     """Render the final rule-based advisor recommendation from available data."""
     top = ranking.iloc[0]
@@ -953,47 +1190,165 @@ def render_ai_investment_advisor(ranking: pd.DataFrame, priority: str) -> None:
         )
 
 
+def initialize_investment_state() -> None:
+    """Initialize session state for the investment conversational flow."""
+    st.session_state.setdefault("investment_step", 0)
+    st.session_state.setdefault("investment_data", {})
+    st.session_state.setdefault("investment_messages", [])
+    st.session_state.setdefault("investment_ranking", None)
+
+
+def reset_investment_state() -> None:
+    """Reset the investment conversational flow."""
+    st.session_state["investment_step"] = 0
+    st.session_state["investment_data"] = {}
+    st.session_state["investment_messages"] = []
+    st.session_state["investment_ranking"] = None
+
+
+def investment_question_for_step(step_index: int) -> str:
+    """Return the assistant question for the investment flow."""
+    questions = [
+        "\u00bfCu\u00e1l es tu presupuesto m\u00e1ximo?",
+        "\u00bfQu\u00e9 superficie m\u00ednima quieres?",
+        "\u00bfCu\u00e1ntas habitaciones necesitas como m\u00ednimo?",
+        "\u00bfQu\u00e9 prioridad tienes? Opciones: Precio bajo, Cercan\u00eda al centro, Cercan\u00eda al metro, Amenities o Equilibrado.",
+    ]
+    return questions[step_index]
+
+
+def parse_investment_number(answer: str) -> float | None:
+    """Parse numeric investment answers with optional thousands separators."""
+    normalized = normalize_text(answer)
+    match = re.search(r"\d[\d\.,]*", normalized)
+    if not match:
+        return parse_number_from_text(answer)
+    value = match.group(0)
+    if "." in value and "," not in value:
+        parts = value.split(".")
+        if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
+            value = "".join(parts)
+    if "," in value and "." in value:
+        value = value.replace(".", "").replace(",", ".")
+    elif "," in value:
+        value = value.replace(",", ".")
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def parse_investment_priority(answer: str) -> str | None:
+    """Parse natural-language priority into the ranking priority values."""
+    normalized = normalize_text(answer)
+    if "precio" in normalized or "barat" in normalized or "bajo" in normalized:
+        return "Precio bajo"
+    if "centro" in normalized:
+        return "Cercan\u00eda al centro"
+    if "metro" in normalized or "comunic" in normalized:
+        return "Cercan\u00eda al metro"
+    if "amen" in normalized or "servicio" in normalized or "equip" in normalized:
+        return "Amenities"
+    if "equilibr" in normalized or "balance" in normalized:
+        return "Equilibrado"
+    return None
+
+
+def parse_investment_answer(field: str, answer: str) -> tuple[Any | None, str | None]:
+    """Parse one conversational investment answer."""
+    if field in ("max_budget", "min_area"):
+        value = parse_investment_number(answer)
+        if value is None or value <= 0:
+            return None, "Necesito un n\u00famero v\u00e1lido. Por ejemplo: 300000 o 60."
+        return float(value), None
+    if field == "min_rooms":
+        value = parse_investment_number(answer)
+        if value is None or value < 0:
+            return None, "Necesito un n\u00famero de habitaciones v\u00e1lido. Por ejemplo: 2."
+        return int(value), None
+    if field == "priority":
+        priority = parse_investment_priority(answer)
+        if priority is None:
+            return None, "No he entendido la prioridad. Puedes responder: precio bajo, cercan\u00eda al centro, cercan\u00eda al metro, amenities o equilibrado."
+        return priority, None
+    return None, "No he podido interpretar la respuesta."
+
+
+def render_investment_chat_history() -> None:
+    """Render investment assistant conversation history."""
+    for role, content in st.session_state["investment_messages"]:
+        with st.chat_message(role):
+            if role == "assistant":
+                st.info(content)
+            else:
+                st.caption(content)
+
+
+def render_investment_results(dataset: pd.DataFrame, ranking: pd.DataFrame, priority: str) -> None:
+    """Render investment recommendations from an existing ranking."""
+    st.subheader(f"{chr(0x1F3C6)} Top 5 barrios recomendados")
+    for position, (_, row) in enumerate(ranking.head(5).iterrows(), start=1):
+        render_investment_card(row, position, priority)
+
+    render_recommended_neighborhoods_map(dataset, ranking)
+    render_investment_score_chart(ranking)
+    render_ai_investment_advisor(ranking, priority)
+
+
 def render_investment_simulator(dataset: pd.DataFrame) -> None:
-    """Render module 3: simple investment simulator."""
+    """Render module 3 as a conversational investment assistant."""
+    initialize_investment_state()
     st.subheader("Investment Simulator")
-    st.info("Ranking orientativo basado solo en dataset.csv. No predice rentabilidad futura.")
+    st.info("Responde en lenguaje natural. El AI Advisor te guiar\u00e1 paso a paso para recomendar barrios con los datos del proyecto.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        max_budget = st.number_input("Presupuesto m\u00e1ximo", min_value=1.0, value=300000.0, step=10000.0)
-        min_area = st.number_input("Superficie m\u00ednima deseada", min_value=1.0, value=60.0, step=5.0)
-    with col2:
-        min_rooms = st.number_input("N\u00famero m\u00ednimo de habitaciones", min_value=0, value=2, step=1)
-        priority = st.selectbox(
-            "Prioridad",
-            [
-                "Precio bajo",
-                "Cercan\u00eda al centro",
-                "Cercan\u00eda al metro",
-                "Amenities",
-                "Equilibrado",
-            ],
-            index=4,
-        )
+    if st.button("Reiniciar b\u00fasqueda"):
+        reset_investment_state()
+        st.rerun()
 
-    if st.button("Buscar oportunidades"):
+    if not st.session_state["investment_messages"]:
+        st.session_state["investment_messages"].append(("assistant", investment_question_for_step(0)))
+
+    render_investment_chat_history()
+
+    fields = ["max_budget", "min_area", "min_rooms", "priority"]
+    step_index = st.session_state["investment_step"]
+    if step_index < len(fields):
+        answer = st.chat_input("Responde al AI Investment Advisor", key="investment_chat_input")
+        if answer:
+            field = fields[step_index]
+            st.session_state["investment_messages"].append(("user", answer))
+            parsed_value, error = parse_investment_answer(field, answer)
+            if error:
+                st.session_state["investment_messages"].append(("assistant", error))
+                st.session_state["investment_messages"].append(("assistant", investment_question_for_step(step_index)))
+                st.rerun()
+
+            st.session_state["investment_data"][field] = parsed_value
+            st.session_state["investment_step"] += 1
+            if st.session_state["investment_step"] < len(fields):
+                st.session_state["investment_messages"].append(("assistant", investment_question_for_step(st.session_state["investment_step"])))
+            else:
+                st.session_state["investment_messages"].append(("assistant", "Perfecto. Ya tengo los datos y voy a buscar barrios recomendados."))
+            st.rerun()
+        return
+
+    if st.session_state["investment_ranking"] is None:
+        data = st.session_state["investment_data"]
         ranking = build_investment_ranking(
             dataset=dataset,
-            max_budget=float(max_budget),
-            min_area=float(min_area),
-            min_rooms=int(min_rooms),
-            priority=str(priority),
+            max_budget=float(data["max_budget"]),
+            min_area=float(data["min_area"]),
+            min_rooms=int(data["min_rooms"]),
+            priority=str(data["priority"]),
         )
-        if ranking.empty:
-            st.warning("No hay barrios que cumplan los filtros seleccionados.")
-            return
+        st.session_state["investment_ranking"] = ranking
 
-        st.subheader(f"{chr(0x1F3C6)} Top 5 barrios recomendados")
-        for position, (_, row) in enumerate(ranking.head(5).iterrows(), start=1):
-            render_investment_card(row, position, str(priority))
+    ranking = st.session_state["investment_ranking"]
+    if ranking.empty:
+        st.warning("No hay barrios que cumplan los filtros seleccionados. Reinicia la b\u00fasqueda para probar otros criterios.")
+        return
 
-        render_investment_score_chart(ranking)
-        render_ai_investment_advisor(ranking, str(priority))
+    render_investment_results(dataset, ranking, str(st.session_state["investment_data"]["priority"]))
 
 
 def render_sidebar(package: dict[str, Any]) -> None:
@@ -1029,6 +1384,7 @@ def render_sidebar(package: dict[str, Any]) -> None:
 
 def main() -> None:
     """Run the definitive MVP app."""
+    apply_visual_theme()
     st.title("AI Real Estate Advisor")
     st.caption("Plataforma PropTech de valoraci\u00f3n inmobiliaria con Machine Learning, datos de mercado e IA conversacional.")
 
