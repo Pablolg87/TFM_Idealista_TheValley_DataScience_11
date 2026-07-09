@@ -884,12 +884,11 @@ def render_neighborhood_card(row: pd.Series) -> None:
 
 def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
     """Render compact horizontal bar charts for price comparison."""
-    st.error("DEBUG: render_horizontal_comparison_chart ejecut?ndose")
     price_data = comparison[["Barrio", "Precio medio"]].copy()
     max_average_price = float(price_data["Precio medio"].max())
     price_data["Valor mostrado"] = price_data["Precio medio"].map(format_euros)
     price_data["Color"] = price_data["Precio medio"].apply(
-        lambda value: "#6FAE2A" if float(value) == max_average_price else "#97C93D"
+        lambda value: "#5E9E1D" if float(value) == max_average_price else "#B7D95A"
     )
     price_bars = (
         alt.Chart(price_data)
@@ -905,7 +904,7 @@ def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
                 "Barrio:N",
                 title=None,
                 sort="-x",
-                axis=alt.Axis(labelFontSize=12, labelColor="#222222", ticks=False, domain=False),
+                axis=alt.Axis(labelFontSize=12, labelColor="#222222", labelLimit=220, labelPadding=4, ticks=False, domain=False),
             ),
             color=alt.Color("Color:N", scale=None, legend=None),
             tooltip=["Barrio:N", "Valor mostrado:N"],
@@ -920,7 +919,7 @@ def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
     max_unit_price = float(unit_price_data["EUR/m2 medio"].max())
     unit_price_data["Valor mostrado"] = unit_price_data["EUR/m2 medio"].map(format_euros_per_m2)
     unit_price_data["Color"] = unit_price_data["EUR/m2 medio"].apply(
-        lambda value: "#6FAE2A" if float(value) == max_unit_price else "#97C93D"
+        lambda value: "#5E9E1D" if float(value) == max_unit_price else "#B7D95A"
     )
     unit_price_bars = (
         alt.Chart(unit_price_data)
@@ -936,7 +935,7 @@ def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
                 "Barrio:N",
                 title=None,
                 sort="-x",
-                axis=alt.Axis(labelFontSize=12, labelColor="#222222", ticks=False, domain=False),
+                axis=alt.Axis(labelFontSize=12, labelColor="#222222", labelLimit=220, labelPadding=4, ticks=False, domain=False),
             ),
             color=alt.Color("Color:N", scale=None, legend=None),
             tooltip=["Barrio:N", "Valor mostrado:N"],
