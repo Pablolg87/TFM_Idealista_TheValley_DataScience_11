@@ -264,11 +264,11 @@ def dataset_load_error(reason: str, path: Path, size_bytes: int | None, preview:
     st.error(
         "No se ha podido cargar el dataset. "
         f"{reason} "
-        "Revisa que data/dataset.csv exista en el despliegue y contenga un CSV v?lido."
+        "Revisa que data/dataset.csv exista en el despliegue y contenga un CSV v\u00e1lido."
     )
     st.code(
         f"Ruta utilizada: {path}\n"
-        f"Tama?o del archivo: {size_label}\n"
+        f"Tama\u00f1o del archivo: {size_label}\n"
         f"Primeras 200 letras del contenido:\n{preview or '[sin contenido]'}",
         language="text",
     )
@@ -287,7 +287,7 @@ def load_dataset() -> pd.DataFrame:
     normalized_preview = preview.lstrip().casefold()
 
     if size_bytes == 0:
-        dataset_load_error("El archivo est? vac?o.", dataset_path, size_bytes, preview)
+        dataset_load_error("El archivo est\u00e1 vac\u00edo.", dataset_path, size_bytes, preview)
 
     if normalized_preview.startswith("<!doctype html") or normalized_preview.startswith("<html") or "<html" in normalized_preview[:80]:
         dataset_load_error("El archivo parece HTML, no un CSV.", dataset_path, size_bytes, preview)
@@ -300,7 +300,7 @@ def load_dataset() -> pd.DataFrame:
         dataset_load_error(f"Pandas no ha podido interpretar el CSV: {exc}", dataset_path, size_bytes, preview)
 
     if dataset.empty or len(dataset.columns) == 0:
-        dataset_load_error("El CSV se ha le?do sin filas o sin columnas.", dataset_path, size_bytes, preview)
+        dataset_load_error("El CSV se ha le\u00eddo sin filas o sin columnas.", dataset_path, size_bytes, preview)
 
     missing_columns = [
         column for column in REQUIRED_DATASET_COLUMNS if column not in dataset.columns
@@ -1088,6 +1088,90 @@ def render_current_conversation_step(neighborhoods: list[str]) -> None:
     st.rerun()
 
 
+
+def render_vera_valuation_recommendation(package: dict[str, Any], context: dict[str, Any]) -> None:
+    """Render VERA's executive interpretation of the completed valuation."""
+    ctx = vera_context(context, package)
+    active_amenities = format_amenities(ctx["active_amenities"])
+    missing_amenities = ctx["missing_amenities"]
+    missing_priority = [amenity for amenity in ["garaje", "terraza", "piscina", "aire acondicionado"] if amenity in missing_amenities]
+
+    def interpret_feature(label: str, importance: float, position: int) -> str:
+        percent = round(float(importance) * 100)
+        prefix = f"**{label} ({percent}%)**"
+        if label == "Superficie construida":
+            return f"{prefix}: es el principal factor que explica la valoraci\u00f3n obtenida, porque condiciona directamente el tama\u00f1o del producto inmobiliario."
+        if label == "Precio medio del barrio":
+            return f"{prefix}: sit\u00faa la vivienda dentro del contexto del mercado local de {ctx['neighborhood']} y tiene una influencia muy elevada."
+        if label == "Ascensor":
+            return f"{prefix}: aporta valor adicional y mejora la accesibilidad, aunque su impacto suele ser menor que superficie y barrio."
+        if label in {"Garaje", "Terraza", "Piscina", "Aire acondicionado", "Trastero"}:
+            return f"{prefix}: complementa la valoraci\u00f3n como amenity diferencial, con un peso secundario frente a superficie y ubicaci\u00f3n."
+        if label == "Habitaciones":
+            return f"{prefix}: ayuda a interpretar la funcionalidad de la vivienda y el perfil de comprador al que puede encajar."
+        if label == "Ba\u00f1os":
+            return f"{prefix}: influye en la comodidad percibida, especialmente al comparar viviendas de tama\u00f1o similar."
+        if label in {"Distancia al centro", "Distancia al Paseo de la Castellana"}:
+            return f"{prefix}: refleja el posicionamiento del barrio dentro de Madrid y ayuda a contextualizar el precio."
+        if position == 0:
+            return f"{prefix}: es el factor con mayor influencia en esta lectura del modelo."
+        return f"{prefix}: contribuye a ajustar la estimaci\u00f3n frente a viviendas comparables."
+
+    interpreted_features = [
+        interpret_feature(item["label"], item["importance"], index)
+        for index, item in enumerate(ctx["top_feature_details"][:4])
+    ]
+
+    with st.container(border=True):
+        st.subheader("\U0001f9e0 Recomendaci\u00f3n de VERA")
+
+        st.markdown("## \U0001f3e0 Valoraci\u00f3n general")
+        st.write(
+            f"La vivienda presenta una valoraci\u00f3n coherente con las caracter\u00edsticas introducidas y con el "
+            f"comportamiento hist\u00f3rico del mercado de **{ctx['neighborhood']}**. El resultado estimado es "
+            f"**{ctx['estimated_price']}** (**{ctx['estimated_unit_price']}**) para una vivienda de "
+            f"**{ctx['area']:.0f} m\u00b2**, {ctx['rooms_text']} y {ctx['bathrooms_text']}, con {active_amenities}."
+        )
+
+        st.markdown("## \U0001f4ca Factores m\u00e1s relevantes")
+        if interpreted_features:
+            st.write("VERA interpreta los factores principales del modelo en clave inmobiliaria:")
+            for line in interpreted_features:
+                st.markdown(f"- {line}")
+        else:
+            st.write("No hay informaci\u00f3n de importancia de variables disponible para interpretar el resultado.")
+
+        st.markdown("## \U0001f4a1 Posibles mejoras")
+        if missing_priority:
+            first_improvement = missing_priority[0]
+            st.write(
+                f"Si tuviera que priorizar una mejora, comenzar\u00eda por **{first_improvement}**, porque es una "
+                "caracter\u00edstica f\u00e1cil de percibir por el comprador y puede ayudar a diferenciar la vivienda "
+                "frente a alternativas similares."
+            )
+            if len(missing_priority) > 1:
+                st.write(
+                    f"Despu\u00e9s revisar\u00eda {format_amenities(missing_priority[1:])}. No asumir\u00eda una subida de precio: "
+                    "para medir el impacto econ\u00f3mico habr\u00eda que ejecutar una nueva valoraci\u00f3n con esas mejoras."
+                )
+        elif missing_amenities:
+            st.write(
+                f"La vivienda ya cubre las amenities principales. Las ausencias restantes ({format_amenities(missing_amenities)}) "
+                "podr\u00edan tener un efecto secundario, pero no parecen el primer punto de decisi\u00f3n frente a superficie, barrio y precio."
+            )
+        else:
+            st.write(
+                "La vivienda incorpora todas las amenities consideradas por el MVP. En este caso centrar\u00eda el an\u00e1lisis "
+                "en precio, superficie, distribuci\u00f3n y comparables reales del barrio."
+            )
+
+        st.markdown("## \u2705 Recomendaci\u00f3n de VERA")
+        st.write(
+            f"Si estuviera asesorando una operaci\u00f3n de compra o venta en **{ctx['neighborhood']}**, usar\u00eda esta "
+            "valoraci\u00f3n como referencia inicial y la contrastar\u00eda con viviendas similares del barrio. Desde el "
+            "punto de vista del modelo, cualquier mejora relevante deber\u00eda recalcularse antes de defender un nuevo precio."
+        )
+
 def render_valuation_results(
     package: dict[str, Any],
     context: dict[str, Any],
@@ -1124,6 +1208,8 @@ def render_valuation_results(
         "hist\u00f3ricos del mercado inmobiliario de Madrid. Debe interpretarse como una ayuda a la toma de decisiones "
         "y no como una tasaci\u00f3n oficial."
     )
+
+    render_vera_valuation_recommendation(package, context)
 
 
 
@@ -1566,7 +1652,7 @@ def render_investment_card(row: pd.Series, position: int, priority: str) -> None
         c5.metric(f"{chr(0x1F687)} Distancia media al metro", f"{float(row['Distancia_metro']):.2f}")
         c6.metric(f"{chr(0x1F3E1)} Viviendas analizadas", f"{int(row['Viviendas_analizadas'])}")
 
-        st.caption("Por qu\u00e9 lo recomendamos?")
+        st.caption("\u00bfPor qu\u00e9 lo recomendamos?")
         check = chr(0x2714)
         for reason in investment_reasons(row, priority):
             st.write(f"{check} {reason}")
@@ -1648,16 +1734,54 @@ def render_recommended_neighborhoods_map(dataset: pd.DataFrame, ranking: pd.Data
 
 
 def render_ai_investment_advisor(ranking: pd.DataFrame, priority: str) -> None:
-    """Render the final rule-based advisor recommendation from available data."""
+    """Render VERA's final interpretation of the investment ranking."""
     top = ranking.iloc[0]
+    investment_data = st.session_state.get("investment_data", {})
+    budget = investment_data.get("max_budget")
+    budget_text = format_euros(float(budget)) if budget is not None else "el presupuesto indicado"
+    score = float(top["Score simple de oportunidad"])
+    alternatives = ranking.head(3)["Barrio"].astype(str).tolist()
+
     with st.container(border=True):
-        st.subheader(f"{chr(0x1F4A1)} Recomendaci\u00f3n del AI Advisor")
-        st.info(
-            f"Seg\u00fan el presupuesto y la prioridad seleccionados ({priority}), el barrio m\u00e1s recomendable es "
-            f"{top['Barrio']} porque ofrece el mejor equilibrio entre precio, superficie y accesibilidad "
-            f"dentro del conjunto de barrios analizados."
+        st.subheader("\U0001f9e0 Recomendaci\u00f3n de VERA")
+
+        st.markdown("## \U0001f3c6 Barrio recomendado")
+        st.metric("Barrio recomendado", str(top["Barrio"]))
+        st.metric("Score de oportunidad", f"{score:.2f}")
+
+        st.markdown("## \U0001f4c8 \u00bfPor qu\u00e9?")
+        st.write(
+            f"Para un presupuesto de **{budget_text}** y una prioridad de **{priority}**, **{top['Barrio']}** "
+            "destaca por el equilibrio entre lo que cuesta comprar, lo que ofrece el barrio y la accesibilidad disponible. "
+            f"No gana solo por precio: combina un precio medio de **{format_euros(float(top['Precio_medio']))}**, "
+            f"un precio medio de **{format_euros_per_m2(float(top['EUR_m2_medio']))}**, "
+            f"amenities medias del **{float(top['Amenities']):.1f} %**, una distancia media al metro de "
+            f"**{float(top['Distancia_metro']):.2f}** y un score final de **{score:.2f}**."
         )
 
+        st.markdown("## \U0001f50d C\u00f3mo interpretar el resultado")
+        interpretation = (
+            "El ranking no intenta recomendar simplemente el barrio m\u00e1s caro ni el m\u00e1s barato. Busca un equilibrio "
+            "entre presupuesto, precio medio, precio por m\u00b2, caracter\u00edsticas medias, accesibilidad, amenities y volumen "
+            "de muestra seg\u00fan el algoritmo del MVP. El resto del Top 5 tambi\u00e9n representa alternativas muy interesantes "
+            "y conviene compararlas antes de tomar una decisi\u00f3n definitiva."
+        )
+        if len(alternatives) >= 3:
+            interpretation += f" Como alternativas destacadas, revisar\u00eda tambi\u00e9n **{alternatives[1]}** y **{alternatives[2]}**."
+        st.write(interpretation)
+
+        st.markdown("## \u2705 Recomendaci\u00f3n de VERA")
+        if len(alternatives) >= 3:
+            st.write(
+                f"Si estuviera asesorando una b\u00fasqueda inmobiliaria, comenzar\u00eda visitando viviendas en **{top['Barrio']}** "
+                f"y despu\u00e9s comparar\u00eda **{alternatives[1]}** y **{alternatives[2]}** para confirmar qu\u00e9 zona ofrece "
+                "la mejor relaci\u00f3n entre precio, caracter\u00edsticas y preferencias reales del comprador."
+            )
+        else:
+            st.write(
+                f"Si estuviera asesorando una b\u00fasqueda inmobiliaria, empezar\u00eda por **{top['Barrio']}** y usar\u00eda "
+                "el ranking como gu\u00eda para validar si el barrio encaja con las necesidades reales del comprador."
+            )
 
 def initialize_investment_state() -> None:
     """Initialize session state for the investment conversational flow."""
@@ -1851,6 +1975,20 @@ def render_sidebar(package: dict[str, Any]) -> None:
         st.caption("✓ Un mayor Pseudo R2 indica un mejor ajuste del modelo.")
 
 
+def render_footer() -> None:
+    """Render the final academic project footer once."""
+    st.divider()
+    st.caption("Developed by")
+    st.caption("Pablo Gonz\u00e1lez Dom\u00ednguez")
+    st.caption("Pablo Jos\u00e9 Lozano Garnacho")
+    st.caption("Clara Mafalda Pedrajas V\u00e1zquez")
+    st.caption("Flavia Ram\u00edrez Plantamor")
+    st.caption("Final Master's Project (TFM)")
+    st.caption("Master in Data Science & Machine Learning with Artificial Intelligence")
+    st.caption("The Valley Business & Tech School")
+    st.caption("Academic Year 2025\u20132026")
+
+
 def main() -> None:
     """Run the definitive MVP app."""
     apply_visual_theme()
@@ -1876,6 +2014,7 @@ def main() -> None:
     with investment_tab:
         render_investment_simulator(dataset)
 
+    render_footer()
 
 
 if __name__ == "__main__":
