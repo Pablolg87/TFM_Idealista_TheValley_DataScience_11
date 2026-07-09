@@ -454,64 +454,154 @@ def calculate_valuation(
     }
 
 
+def detect_vera_intent(question: str) -> str:
+    """Classify a VERA user question into one rule-based intent."""
+    normalized_question = normalize_text(question)
+
+    def has_any(*keywords: str) -> bool:
+        return any(keyword in normalized_question for keyword in keywords)
+
+    if has_any("limitacion", "limitaciones", "error", "fiable", "precision", "confianza", "tasacion", "oficial"):
+        return "MODEL_LIMITATIONS"
+    if has_any("modelo", "random forest", "machine learning", "algoritmo", "log_price", "como calcula", "como funciona"):
+        return "MODEL_EXPLANATION"
+    if has_any("variable", "variables", "influ", "importancia", "importante", "pesa", "feature"):
+        return "FEATURE_IMPORTANCE"
+    if has_any("y si", "que pasaria", "si tuviera", "si cambiara", "tuviera", "cambiara", "reformada", "reformado", "una habitacion mas", "habitacion mas", "piscina", "garaje", "parking"):
+        return "HYPOTHETICAL_SCENARIO"
+    if has_any("inversion", "invertir", "rentabilidad", "oportunidad", "comprar", "compraria"):
+        return "INVESTMENT"
+    if has_any("mejora", "mejorar", "reforma", "reformar", "subir valor", "equipamiento", "amenities"):
+        return "PROPERTY_IMPROVEMENTS"
+    if has_any("barrio", "zona", "ubic", "centro", "castellana", "entorno", "comunic"):
+        return "NEIGHBOURHOOD"
+    if has_any("precio", "valoracion", "estimacion", "resultado", "euros", "m2", "por que", "porque"):
+        return "PRICE_EXPLANATION"
+    return "GENERAL"
+
+
 def answer_valuation_question(
     question: str,
     package: dict[str, Any],
     dataset: pd.DataFrame,
     context: dict[str, Any],
 ) -> str:
-    """Answer rule-based follow-up questions from the last valuation."""
-    normalized_question = question.casefold()
+    """Answer VERA follow-up questions from the last valuation context."""
+    normalized_question = normalize_text(question)
+    intent = detect_vera_intent(question)
+    property_input = context["input"]
+    important_variables = (
+        feature_importance(package)[lambda df: df["Variable"] != DISTANCE_TO_METRO_COLUMN]
+        .head(3)["Variable"]
+        .tolist()
+    )
+    important_text = ", ".join(str(variable) for variable in important_variables) or "No disponible"
+    amenities = [
+        ("ascensor", property_input.get(HAS_LIFT_COLUMN, 0)),
+        ("terraza", property_input.get(HAS_TERRACE_COLUMN, 0)),
+        ("aire acondicionado", property_input.get(HAS_AIR_CONDITIONING_COLUMN, 0)),
+        ("garaje", property_input.get(HAS_PARKING_COLUMN, 0)),
+        ("trastero", property_input.get(HAS_BOXROOM_COLUMN, 0)),
+        ("piscina", property_input.get(HAS_SWIMMING_POOL_COLUMN, 0)),
+    ]
+    active_amenities = [name for name, value in amenities if int(value) == 1]
+    missing_amenities = [name for name, value in amenities if int(value) == 0]
+    active_amenities_text = ", ".join(active_amenities) if active_amenities else "sin amenities destacados"
+    missing_amenities_text = ", ".join(missing_amenities[:3]) if missing_amenities else "sin carencias claras en amenities"
 
-    if "piscina" in normalized_question:
-        simulated_input = dict(context["input"])
-        if int(simulated_input[HAS_SWIMMING_POOL_COLUMN]) == 1:
-            return "La vivienda ya incluye piscina en la valoraci\u00f3n actual."
-        simulated_input[HAS_SWIMMING_POOL_COLUMN] = 1
-        simulated_price = predict_price(
-            package, dataset, context["neighborhood"], simulated_input
-        )
-        difference = simulated_price - float(context["estimated_price"])
+    if intent == "PRICE_EXPLANATION":
         return (
-            f"Si tuviera piscina, la estimaci\u00f3n ser\u00eda {format_euros(simulated_price)}, "
-            f"con una diferencia aproximada de {format_euros(difference)}."
-        )
-
-    if "parking" in normalized_question or "garaje" in normalized_question:
-        simulated_input = dict(context["input"])
-        if int(simulated_input[HAS_PARKING_COLUMN]) == 1:
-            return "La vivienda ya incluye parking en la valoraci\u00f3n actual."
-        simulated_input[HAS_PARKING_COLUMN] = 1
-        simulated_price = predict_price(
-            package, dataset, context["neighborhood"], simulated_input
-        )
-        difference = simulated_price - float(context["estimated_price"])
-        return (
-            f"Si tuviera parking, la estimaci\u00f3n ser\u00eda {format_euros(simulated_price)}, "
-            f"con una diferencia aproximada de {format_euros(difference)}."
-        )
-
-    if "variable" in normalized_question or "influ" in normalized_question:
-        return (
-            f"La variable con mayor importancia global en el Random Forest es "
-            f"{context['top_feature']}."
+            f"La estimaci\u00f3n para esta vivienda es {format_euros(context['estimated_price'])}, "
+            f"equivalente a {format_euros_per_m2(context['estimated_unit_price'])}. "
+            f"VERA la interpreta combinando {float(property_input[AREA_COLUMN]):.0f} m\u00b2, "
+            f"{int(property_input[ROOMS_COLUMN])} habitaciones, {int(property_input[BATHROOMS_COLUMN])} ba\u00f1os, "
+            f"sus amenities y el contexto de {context['neighborhood']}. "
+            f"Las variables globales m\u00e1s relevantes ahora son: {important_text}."
         )
 
-    if "comunic" in normalized_question or "metro" in normalized_question or "ubic" in normalized_question:
+    if intent == "MODEL_EXPLANATION":
         return (
-            "La valoraci?n utiliza informaci?n agregada a nivel de barrio. Para esta zona, el contexto disponible "
-            f"incluye distancia media al centro {context['distance_to_city_center']:.2f}, "
-            f"distancia media a Castellana {context['distance_to_castellana']:.2f}, "
-            f"precio medio del barrio {format_euros(context['average_price'])} y "
-            f"precio medio por m? {format_euros_per_m2(context['average_unit_price'])}. "
-            "La estimaci?n tambi?n considera las caracter?sticas de la vivienda, sus amenities y el comportamiento "
-            "hist?rico del mercado inmobiliario en Madrid."
+            "El modelo utilizado es un Random Forest. Internamente estima LOG_PRICE y la aplicaci\u00f3n transforma "
+            "esa salida a euros para mostrar un precio interpretable. "
+            "Para esta vivienda combina caracter\u00edsticas del inmueble, amenities y contexto agregado del barrio. "
+            "No es una tasaci\u00f3n oficial: es una ayuda anal\u00edtica basada en patrones hist\u00f3ricos."
+        )
+
+    if intent == "FEATURE_IMPORTANCE":
+        return (
+            f"Las variables con mayor peso global que VERA muestra son: {important_text}. "
+            "Esto indica qu\u00e9 variables suelen ayudar m\u00e1s al Random Forest en el conjunto de datos. "
+            "En esta vivienda concreta conviene interpretarlas junto con superficie, barrio, habitaciones, ba\u00f1os "
+            "y amenities, sin leerlas como causalidad exacta."
+        )
+
+    if intent == "NEIGHBOURHOOD":
+        return (
+            f"La vivienda est\u00e1 en {context['neighborhood']}. En el dataset, este barrio tiene un precio medio "
+            f"de {format_euros(context['average_price'])} y un precio medio por m\u00b2 de "
+            f"{format_euros_per_m2(context['average_unit_price'])}. "
+            f"El modelo tambi\u00e9n incorpora ubicaci\u00f3n relativa: centro {context['distance_to_city_center']:.2f} "
+            f"y Castellana {context['distance_to_castellana']:.2f}. "
+            "Ese contexto de barrio ayuda a interpretar el precio estimado."
+        )
+
+    if intent == "HYPOTHETICAL_SCENARIO":
+        involved_variables = []
+        if "piscina" in normalized_question:
+            involved_variables.append(HAS_SWIMMING_POOL_COLUMN)
+        if "garaje" in normalized_question or "parking" in normalized_question:
+            involved_variables.append(HAS_PARKING_COLUMN)
+        if "terraza" in normalized_question:
+            involved_variables.append(HAS_TERRACE_COLUMN)
+        if "ascensor" in normalized_question:
+            involved_variables.append(HAS_LIFT_COLUMN)
+        if "habitacion" in normalized_question:
+            involved_variables.append(ROOMS_COLUMN)
+        if "barrio" in normalized_question or "zona" in normalized_question or "cambiara" in normalized_question:
+            involved_variables.extend([NEIGHBORHOOD_COLUMN, MEAN_UNITPRICE_BY_LOCATION_COLUMN])
+        if "reform" in normalized_question:
+            involved_variables.append("estado/reforma no disponible como variable directa")
+        variables_text = ", ".join(dict.fromkeys(involved_variables)) or "las variables de amenities, superficie, habitaciones y barrio"
+        return (
+            "En ese escenario hipot\u00e9tico, la tendencia esperada depender\u00eda de c\u00f3mo cambien las variables "
+            f"implicadas: {variables_text}. "
+            "VERA no debe inventar un nuevo precio sin ejecutar el modelo con una entrada actualizada. "
+            "Para obtener una cifra concreta, lo correcto es realizar una nueva valoraci\u00f3n con esas caracter\u00edsticas."
+        )
+
+    if intent == "PROPERTY_IMPROVEMENTS":
+        return (
+            f"Para interpretar posibles mejoras, VERA mirar\u00eda primero los amenities no presentes: {missing_amenities_text}. "
+            f"Despu\u00e9s revisar\u00eda si el cambio encaja con una vivienda de {float(property_input[AREA_COLUMN]):.0f} m\u00b2 "
+            f"en {context['neighborhood']}. "
+            "La mejora m\u00e1s razonable es la que refuerza atributos medibles por el modelo sin perder coherencia "
+            "con el mercado hist\u00f3rico del barrio."
+        )
+
+    if intent == "INVESTMENT":
+        return (
+            "Desde una lectura de decisi\u00f3n, VERA puede ayudarte a entender precio, barrio y caracter\u00edsticas, "
+            "pero no debe prometer rentabilidad futura ni revalorizaci\u00f3n. "
+            f"Para esta vivienda, partir\u00eda de {format_euros(context['estimated_price'])}, "
+            f"{format_euros_per_m2(context['estimated_unit_price'])} y del contexto de {context['neighborhood']}. "
+            "La decisi\u00f3n final deber\u00eda contrastarse con presupuesto, objetivo y riesgo."
+        )
+
+    if intent == "MODEL_LIMITATIONS":
+        return (
+            "Esta salida debe leerse como una estimaci\u00f3n orientativa. "
+            "El modelo aprende de datos hist\u00f3ricos y puede equivocarse si la vivienda es at\u00edpica, "
+            "si faltan variables relevantes o si el mercado ha cambiado. "
+            "Por eso VERA la presenta como apoyo a la toma de decisiones, no como tasaci\u00f3n oficial."
         )
 
     return (
-        f"La estimaci\u00f3n del modelo es {format_euros(context['estimated_price'])}, "
-        f"equivalente a {format_euros_per_m2(context['estimated_unit_price'])}. "
-        "Debe interpretarse como una ayuda a la toma de decisiones, no como una tasaci\u00f3n oficial."
+        f"Tengo presente la valoraci\u00f3n de {context['neighborhood']}: "
+        f"{float(property_input[AREA_COLUMN]):.0f} m\u00b2, {int(property_input[ROOMS_COLUMN])} habitaciones, "
+        f"{int(property_input[BATHROOMS_COLUMN])} ba\u00f1os y {active_amenities_text}. "
+        f"El precio estimado es {format_euros(context['estimated_price'])}. "
+        "Puedes preguntarme por el precio, el modelo, las variables importantes, el barrio, mejoras, "
+        "escenarios hipot\u00e9ticos o limitaciones."
     )
 
 
@@ -667,7 +757,7 @@ def render_chat_history() -> None:
 
 def format_yes_no(value: Any) -> str:
     """Format binary amenity values for presentation."""
-    return "S?" if int(value) == 1 else "No"
+    return "S\u00ed" if int(value) == 1 else "No"
 
 
 def render_property_summary_card(context: dict[str, Any]) -> None:
@@ -777,12 +867,18 @@ def render_followup_chat(
     dataset: pd.DataFrame,
     context: dict[str, Any],
 ) -> None:
-    """Render the post-valuation conversational assistant."""
-    st.subheader("AI Property Advisor")
-    st.info(
-        "La valoraci\u00f3n ya est\u00e1 lista. Puedes preguntarme por el precio estimado, "
-        "las variables con mayor influencia, parking, piscina o informaci\u00f3n de ubicaci\u00f3n disponible."
+    """Render VERA, the persistent post-valuation conversational advisor."""
+    st.subheader("\U0001f916 VERA")
+    st.caption("Valuation & Real Estate Advisor")
+
+    initial_message = (
+        "Hola, soy VERA, tu especialista en valoraci\u00f3n inmobiliaria.\n\n"
+        "Puedo ayudarte a interpretar el resultado de la valoraci\u00f3n, explicar las variables m\u00e1s "
+        "relevantes del modelo, analizar escenarios hipot\u00e9ticos y resolver cualquier duda sobre la "
+        "vivienda y el barrio."
     )
+    if not st.session_state["followup_messages"]:
+        st.session_state["followup_messages"].append(("assistant", initial_message))
 
     for role, content in st.session_state["followup_messages"]:
         with st.chat_message(role):
@@ -791,7 +887,7 @@ def render_followup_chat(
             else:
                 st.caption(content)
 
-    question = st.chat_input("Pregunta al AI Property Advisor")
+    question = st.chat_input("Pregunta a VERA")
     if question:
         answer = answer_valuation_question(question, package, dataset, context)
         st.session_state["followup_messages"].append(("user", question))
