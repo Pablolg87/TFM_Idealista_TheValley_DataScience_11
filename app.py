@@ -259,9 +259,50 @@ def apply_visual_theme() -> None:
         unsafe_allow_html=True,
     )
 
+def dataset_load_error(reason: str, path: Path, size_bytes: int | None, preview: str) -> None:
+    """Show a clear dataset loading error and stop the Streamlit app."""
+    size_label = "No disponible" if size_bytes is None else f"{size_bytes} bytes"
+    st.error(
+        "No se ha podido cargar el dataset. "
+        f"{reason} "
+        "Revisa que data/dataset.csv exista en el despliegue y contenga un CSV v?lido."
+    )
+    st.code(
+        f"Ruta utilizada: {path}\n"
+        f"Tama?o del archivo: {size_label}\n"
+        f"Primeras 200 letras del contenido:\n{preview or '[sin contenido]'}",
+        language="text",
+    )
+    st.stop()
+
+
 def load_dataset() -> pd.DataFrame:
-    """Load the cleaned Madrid real estate dataset."""
-    dataset = pd.read_csv(DATASET_PATH)
+    """Load the cleaned Madrid real estate dataset with deployment diagnostics."""
+    dataset_path = DATASET_PATH.resolve()
+
+    if not DATASET_PATH.exists():
+        dataset_load_error("El archivo no existe.", dataset_path, None, "")
+
+    size_bytes = DATASET_PATH.stat().st_size
+    preview = DATASET_PATH.read_text(encoding="utf-8", errors="replace")[:200]
+    normalized_preview = preview.lstrip().casefold()
+
+    if size_bytes == 0:
+        dataset_load_error("El archivo est? vac?o.", dataset_path, size_bytes, preview)
+
+    if normalized_preview.startswith("<!doctype html") or normalized_preview.startswith("<html") or "<html" in normalized_preview[:80]:
+        dataset_load_error("El archivo parece HTML, no un CSV.", dataset_path, size_bytes, preview)
+
+    try:
+        dataset = pd.read_csv(DATASET_PATH)
+    except pd.errors.EmptyDataError:
+        dataset_load_error("Pandas no ha encontrado columnas que leer.", dataset_path, size_bytes, preview)
+    except pd.errors.ParserError as exc:
+        dataset_load_error(f"Pandas no ha podido interpretar el CSV: {exc}", dataset_path, size_bytes, preview)
+
+    if dataset.empty or len(dataset.columns) == 0:
+        dataset_load_error("El CSV se ha le?do sin filas o sin columnas.", dataset_path, size_bytes, preview)
+
     missing_columns = [
         column for column in REQUIRED_DATASET_COLUMNS if column not in dataset.columns
     ]
