@@ -710,7 +710,7 @@ def render_valuation_results(
     if importance.empty:
         st.warning("El modelo no expone feature_importances_.")
     else:
-        st.bar_chart(importance.set_index("Variable").head(10))
+        st.bar_chart(importance.set_index("Variable").head(10), color="#78BE20")
         st.caption("Importancia global del Random Forest. No representa explicabilidad local de una vivienda concreta.")
 
     st.info(
@@ -883,40 +883,74 @@ def render_neighborhood_card(row: pd.Series) -> None:
 
 
 def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
-    """Render grouped bars with raw values for the requested indicators."""
-    indicators = [
-        ("Precio medio", "Precio medio"),
-        ("EUR/m2 medio", "EUR/m\u00b2"),
-    ]
-    chart_rows: list[dict[str, float | str]] = []
-    for source_column, label in indicators:
-        for _, row in comparison.iterrows():
-            value = float(row[source_column])
-            chart_rows.append(
-                {
-                    "Indicador": label,
-                    "Barrio": str(row["Barrio"]),
-                    "Valor": value,
-                    "Valor mostrado": format_euros_per_m2(value) if source_column == "EUR/m2 medio" else format_euros(value),
-                }
-            )
-
-    chart_data = pd.DataFrame(chart_rows)
-    bars = (
-        alt.Chart(chart_data)
-        .mark_bar()
-        .encode(
-            x=alt.X("Barrio:N", title=None),
-            y=alt.Y("Valor:Q", title="Valor en euros"),
-            color=alt.Color("Barrio:N", title="Barrio"),
-            column=alt.Column("Indicador:N", title=None),
-            tooltip=["Barrio:N", "Indicador:N", "Valor mostrado:N"],
-        )
-        .properties(height=280)
-        .resolve_scale(y="independent")
+    """Render compact horizontal bar charts for price comparison."""
+    st.error("DEBUG: render_horizontal_comparison_chart ejecut?ndose")
+    price_data = comparison[["Barrio", "Precio medio"]].copy()
+    max_average_price = float(price_data["Precio medio"].max())
+    price_data["Valor mostrado"] = price_data["Precio medio"].map(format_euros)
+    price_data["Color"] = price_data["Precio medio"].apply(
+        lambda value: "#6FAE2A" if float(value) == max_average_price else "#97C93D"
     )
-    st.subheader("Comparaci\u00f3n de precio")
-    st.altair_chart(bars, width="stretch")
+    price_bars = (
+        alt.Chart(price_data)
+        .mark_bar(cornerRadiusEnd=6)
+        .encode(
+            x=alt.X(
+                "Precio medio:Q",
+                title=None,
+                axis=alt.Axis(labels=False, ticks=False, domain=False, grid=False),
+                scale=alt.Scale(domain=[0, max_average_price * 1.22]),
+            ),
+            y=alt.Y(
+                "Barrio:N",
+                title=None,
+                sort="-x",
+                axis=alt.Axis(labelFontSize=12, labelColor="#222222", ticks=False, domain=False),
+            ),
+            color=alt.Color("Color:N", scale=None, legend=None),
+            tooltip=["Barrio:N", "Valor mostrado:N"],
+        )
+        .properties(height=200)
+    )
+    price_labels = price_bars.mark_text(align="left", baseline="middle", dx=12, color="#222222", fontSize=12).encode(
+        text="Valor mostrado:N"
+    )
+
+    unit_price_data = comparison[["Barrio", "EUR/m2 medio"]].copy()
+    max_unit_price = float(unit_price_data["EUR/m2 medio"].max())
+    unit_price_data["Valor mostrado"] = unit_price_data["EUR/m2 medio"].map(format_euros_per_m2)
+    unit_price_data["Color"] = unit_price_data["EUR/m2 medio"].apply(
+        lambda value: "#6FAE2A" if float(value) == max_unit_price else "#97C93D"
+    )
+    unit_price_bars = (
+        alt.Chart(unit_price_data)
+        .mark_bar(cornerRadiusEnd=6)
+        .encode(
+            x=alt.X(
+                "EUR/m2 medio:Q",
+                title=None,
+                axis=alt.Axis(labels=False, ticks=False, domain=False, grid=False),
+                scale=alt.Scale(domain=[0, max_unit_price * 1.22]),
+            ),
+            y=alt.Y(
+                "Barrio:N",
+                title=None,
+                sort="-x",
+                axis=alt.Axis(labelFontSize=12, labelColor="#222222", ticks=False, domain=False),
+            ),
+            color=alt.Color("Color:N", scale=None, legend=None),
+            tooltip=["Barrio:N", "Valor mostrado:N"],
+        )
+        .properties(height=200)
+    )
+    unit_price_labels = unit_price_bars.mark_text(align="left", baseline="middle", dx=12, color="#222222", fontSize=12).encode(
+        text="Valor mostrado:N"
+    )
+
+    st.markdown("#### \U0001f4b6 Comparaci\u00f3n del precio medio")
+    st.altair_chart(price_bars + price_labels, width="stretch")
+    st.markdown("#### \U0001f3e0 Comparaci\u00f3n del precio por m\u00b2")
+    st.altair_chart(unit_price_bars + unit_price_labels, width="stretch")
 
 
 def render_executive_summary(comparison: pd.DataFrame) -> None:
@@ -1375,7 +1409,7 @@ def render_investment_simulator(dataset: pd.DataFrame) -> None:
 def render_sidebar(package: dict[str, Any]) -> None:
     """Render model and dataset metadata in the sidebar."""
     with st.sidebar:
-        st.title("AI Real Estate Advisor")
+        st.title("\U0001f4ca Modelo y m\u00e9tricas")
 
         st.subheader("Ciudad")
         st.caption("Madrid")
