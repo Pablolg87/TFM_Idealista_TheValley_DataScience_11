@@ -716,6 +716,13 @@ def answer_valuation_question(
 ) -> str:
     """Answer VERA follow-up questions from the last valuation context."""
     normalized_question = normalize_text(question)
+    clean_question = normalized_question.translate(str.maketrans("", "", "\u00bf?!.:,;"))
+    clean_question = " ".join(clean_question.split())
+    topic_question = clean_question
+    for prefix in ("y si ", "y ", "o sea ", "entonces "):
+        if topic_question.startswith(prefix):
+            topic_question = topic_question[len(prefix):].strip()
+            break
     intent = detect_vera_intent(question)
     ctx = vera_context(context, package)
     active_amenities_text = format_amenities(ctx["active_amenities"])
@@ -723,20 +730,76 @@ def answer_valuation_question(
     importance_factors = ctx["top_feature_lines"] or ["No hay importancia de variables disponible en el paquete del modelo."]
     property_summary = f"{ctx['area']:.0f} m\u00b2, {ctx['rooms_text']} y {ctx['bathrooms_text']}"
 
+    amenity_feature_labels = {
+        HAS_LIFT_COLUMN: "Ascensor",
+        HAS_TERRACE_COLUMN: "Terraza",
+        HAS_AIR_CONDITIONING_COLUMN: "Aire acondicionado",
+        HAS_PARKING_COLUMN: "Garaje",
+        HAS_BOXROOM_COLUMN: "Trastero",
+        HAS_SWIMMING_POOL_COLUMN: "Piscina",
+    }
+    amenity_importance = feature_importance(package)
+    if not amenity_importance.empty:
+        amenity_importance = amenity_importance[amenity_importance["Variable"].isin(amenity_feature_labels)].copy()
+        amenity_importance["Label"] = amenity_importance["Variable"].map(amenity_feature_labels)
+        amenity_importance = amenity_importance.sort_values("Importance", ascending=False)
+    top_amenity = None if amenity_importance.empty else amenity_importance.iloc[0]
+    top_amenity_label = None if top_amenity is None else str(top_amenity["Label"])
+    top_amenity_percent = 0 if top_amenity is None else round(float(top_amenity["Importance"]) * 100)
+
     previous_user_questions = [
         content for role, content in st.session_state.get("followup_messages", [])
         if role == "user"
     ]
     previous_intent = detect_vera_intent(previous_user_questions[-1]) if previous_user_questions else "GENERAL"
-    followup_terms = {"y entonces", "entonces", "cual", "cu\u00e1l", "por que", "por qu\u00e9", "y de amenities", "amenities"}
-    is_followup = normalized_question in followup_terms or (len(normalized_question) <= 18 and previous_user_questions)
+    followup_terms = {"y entonces", "entonces", "cual", "cu\u00e1l", "por que", "por qu\u00e9", "y de amenities", "amenities", "como asi", "c\u00f3mo as\u00ed", "eso", "ese"}
+    is_followup = clean_question in followup_terms or topic_question in followup_terms or (len(clean_question) <= 22 and previous_user_questions)
     if is_followup and intent == "GENERAL":
-        if "amenit" in normalized_question:
+        if "amenit" in topic_question:
             intent = "PROPERTY_IMPROVEMENTS"
-        elif normalized_question in {"cual", "cu\u00e1l"}:
+        elif topic_question in {"cual", "cu\u00e1l"}:
             intent = "FEATURE_IMPORTANCE"
         else:
             intent = previous_intent
+
+    previous_question = normalize_text(previous_user_questions[-1]).translate(str.maketrans("", "", "\u00bf?!.:,;")) if previous_user_questions else ""
+    previous_topic_amenity = any(term in previous_question for term in ["amenity", "amenities", "ascensor", "garaje", "parking", "piscina", "terraza"])
+    asks_top_amenity = "amenit" in topic_question and any(term in topic_question for term in ["influ", "peso", "pesa", "mas", "mayor"] )
+    refers_to_ascensor = "ascensor" in topic_question
+    asks_followup_why = topic_question in {"por que", "por qu\u00e9", "como asi", "c\u00f3mo as\u00ed"}
+
+    if asks_top_amenity and top_amenity_label:
+        return (
+            f"Entre las amenities consideradas por el modelo, **{top_amenity_label.lower()}** es la que m\u00e1s peso tiene en esta valoraci\u00f3n "
+            f"({top_amenity_percent} % de importancia global).\n\n"
+            f"Aun as\u00ed, su impacto sigue siendo bastante menor que **{ctx['top_features_text']}**, que son los factores realmente determinantes para explicar el precio."
+        )
+
+    if previous_topic_amenity and refers_to_ascensor and top_amenity_label:
+        if top_amenity_label == "Ascensor":
+            return (
+                "S\u00ed. Entre las amenities consideradas por el modelo, **el ascensor** es la que m\u00e1s peso tiene en esta valoraci\u00f3n.\n\n"
+                f"Aun as\u00ed, conviene ponerlo en contexto: su impacto es menor que **{ctx['top_features_text']}**, que son los factores que m\u00e1s explican el precio estimado."
+            )
+        return (
+            f"No exactamente. En esta valoraci\u00f3n, la amenity con m\u00e1s peso es **{top_amenity_label.lower()}**, no el ascensor.\n\n"
+            f"El ascensor puede aportar valor comercial, pero queda por detr\u00e1s de los factores principales: **{ctx['top_features_text']}**."
+        )
+
+    if asks_followup_why and previous_topic_amenity and top_amenity_label:
+        return (
+            f"Porque **{top_amenity_label.lower()}** ayuda a diferenciar viviendas parecidas cuando el comprador compara comodidad, accesibilidad y equipamiento. "
+            "Es un atributo f\u00e1cil de entender comercialmente y puede inclinar la decisi\u00f3n entre inmuebles similares.\n\n"
+            f"Pero no es el motor principal del precio: en esta valoraci\u00f3n pesan m\u00e1s **{ctx['top_features_text']}**."
+        )
+
+    if intent == "LOCATION_EXPLANATION" and any(term in topic_question for term in ["cerca", "lejos", "centro"]):
+        direction = "m\u00e1s cerca del centro" if "cerca" in topic_question else "m\u00e1s lejos del centro"
+        expected = "reforzar\u00eda el atractivo de ubicaci\u00f3n" if "cerca" in topic_question else "podr\u00eda reducir parte del atractivo de ubicaci\u00f3n"
+        return (
+            f"Si estuviera **{direction}**, {expected}, porque el contexto de ubicaci\u00f3n ayuda a situar el barrio dentro de Madrid.\n\n"
+            "No puedo convertir ese cambio en euros sin ejecutar una nueva valoraci\u00f3n, pero desde un punto de vista inmobiliario la cercan\u00eda al centro suele mejorar la lectura comercial frente a alternativas m\u00e1s perif\u00e9ricas."
+        )
 
     if intent == "PRICE_EXPLANATION":
         return (
@@ -752,7 +815,7 @@ def answer_valuation_question(
         return (
             "Los factores que m\u00e1s explican esta valoraci\u00f3n son:\n\n"
             + "\n".join(f"- {factor}" for factor in importance_factors[:4])
-            + "\n\nEn t\u00e9rminos inmobiliarios, primero mirar?a esos elementos antes que detalles secundarios: suelen ser los que mejor explican por qu\u00e9 una vivienda se sit\u00faa en un rango de precio u otro."
+            + "\n\nEn t\u00e9rminos inmobiliarios, primero miraría esos elementos antes que detalles secundarios: suelen ser los que mejor explican por qu\u00e9 una vivienda se sit\u00faa en un rango de precio u otro."
         )
 
     if intent == "LOCATION_EXPLANATION":
@@ -777,7 +840,7 @@ def answer_valuation_question(
         return (
             "S\u00ed, ese cambio probablemente modificar\u00eda el atractivo comercial de la vivienda, pero no ser\u00eda profesional inventar un nuevo precio sin recalcular.\n\n"
             + "\n".join(lines)
-            + "\n\nPara cuantificarlo, ejecutar?a una nueva valoraci\u00f3n con esas caracter\u00edsticas incorporadas."
+            + "\n\nPara cuantificarlo, ejecutar\u00eda una nueva valoraci\u00f3n con esas caracter\u00edsticas incorporadas."
         )
 
     if intent == "PROPERTY_IMPROVEMENTS":
@@ -806,7 +869,7 @@ def answer_valuation_question(
     if intent == "NEIGHBOURHOOD":
         return (
             f"El barrio importa mucho: **{ctx['neighborhood']}** marca la referencia local con un precio medio de **{ctx['average_price']}** y **{ctx['average_unit_price']}**.\n\n"
-            "Por eso no comparar?a esta vivienda con Madrid en abstracto, sino con alternativas similares dentro del mismo entorno o en barrios equivalentes."
+            "Por eso no compararía esta vivienda con Madrid en abstracto, sino con alternativas similares dentro del mismo entorno o en barrios equivalentes."
         )
 
     if intent == "MODEL_EXPLANATION":
@@ -819,7 +882,7 @@ def answer_valuation_question(
         return (
             f"Siguiendo con la idea anterior, lo m\u00e1s importante aqu\u00ed es no perder de vista **{ctx['top_features_text']}**. "
             f"Para esta vivienda en **{ctx['neighborhood']}**, esos factores explican mejor el resultado que un detalle aislado.\n\n"
-            "Si quieres, puedo centrarme en precio, ubicaci?n, amenities o limitaciones del modelo."
+            "Si quieres, puedo centrarme en precio, ubicación, amenities o limitaciones del modelo."
         )
 
     return (
@@ -1131,7 +1194,6 @@ def render_valuation_results(
         "y no como una tasaci\u00f3n oficial."
     )
 
-    render_vera_valuation_recommendation(package, context)
 
 
 
