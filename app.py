@@ -411,8 +411,9 @@ def feature_importance(package: dict[str, Any]) -> pd.DataFrame:
 
 
 def top_feature(package: dict[str, Any]) -> str:
-    """Return the most important global model feature."""
+    """Return the most important global model feature shown to the user."""
     importance = feature_importance(package)
+    importance = importance[importance["Variable"] != DISTANCE_TO_METRO_COLUMN]
     if importance.empty:
         return "No disponible"
     return str(importance.iloc[0]["Variable"])
@@ -496,12 +497,15 @@ def answer_valuation_question(
             f"{context['top_feature']}."
         )
 
-    if "comunic" in normalized_question or "metro" in normalized_question:
+    if "comunic" in normalized_question or "metro" in normalized_question or "ubic" in normalized_question:
         return (
-            "La informaci\u00f3n de ubicaci\u00f3n disponible para este barrio indica estas distancias medias: "
-            f"centro {context['distance_to_city_center']:.2f}, "
-            f"Castellana {context['distance_to_castellana']:.2f} y "
-            f"metro {context['distance_to_metro']:.2f}."
+            "La valoraci?n utiliza informaci?n agregada a nivel de barrio. Para esta zona, el contexto disponible "
+            f"incluye distancia media al centro {context['distance_to_city_center']:.2f}, "
+            f"distancia media a Castellana {context['distance_to_castellana']:.2f}, "
+            f"precio medio del barrio {format_euros(context['average_price'])} y "
+            f"precio medio por m? {format_euros_per_m2(context['average_unit_price'])}. "
+            "La estimaci?n tambi?n considera las caracter?sticas de la vivienda, sus amenities y el comportamiento "
+            "hist?rico del mercado inmobiliario en Madrid."
         )
 
     return (
@@ -661,6 +665,42 @@ def render_chat_history() -> None:
                 st.caption(content)
 
 
+def format_yes_no(value: Any) -> str:
+    """Format binary amenity values for presentation."""
+    return "S?" if int(value) == 1 else "No"
+
+
+def render_property_summary_card(context: dict[str, Any]) -> None:
+    """Render a summary of the user-provided property characteristics."""
+    data = st.session_state.get("valuation_data", {})
+    summary_rows = [
+        ("Barrio", context.get("neighborhood", data.get("neighborhood", "No informado"))),
+        ("Superficie (m?)", f"{float(data.get(AREA_COLUMN, 0)):,.0f}".replace(",", ".")),
+        ("Habitaciones", str(int(data.get(ROOMS_COLUMN, 0)))),
+        ("Ba?os", str(int(data.get(BATHROOMS_COLUMN, 0)))),
+        ("Ascensor", format_yes_no(data.get(HAS_LIFT_COLUMN, 0))),
+        ("Garaje", format_yes_no(data.get(HAS_PARKING_COLUMN, 0))),
+        ("Terraza", format_yes_no(data.get(HAS_TERRACE_COLUMN, 0))),
+        ("Piscina", format_yes_no(data.get(HAS_SWIMMING_POOL_COLUMN, 0))),
+        ("Aire acondicionado", format_yes_no(data.get(HAS_AIR_CONDITIONING_COLUMN, 0))),
+        ("Trastero", format_yes_no(data.get(HAS_BOXROOM_COLUMN, 0))),
+    ]
+
+    st.subheader("?? Resumen de la vivienda analizada")
+    with st.container(border=True):
+        header_col, value_col = st.columns([1, 1])
+        header_col.caption("Caracter?stica")
+        value_col.caption("Valor")
+        for label, value in summary_rows:
+            label_col, data_col = st.columns([1, 1])
+            label_col.write(label)
+            data_col.write(value)
+        st.caption(
+            "La valoraci?n se ha realizado considerando las caracter?sticas anteriores y el comportamiento "
+            "hist?rico del mercado inmobiliario en Madrid."
+        )
+
+
 def render_current_conversation_step(neighborhoods: list[str]) -> None:
     """Capture the active valuation answer using only st.chat_input."""
     step_index = st.session_state["valuation_step"]
@@ -707,6 +747,7 @@ def render_valuation_results(
 
     st.subheader("Variables con mayor influencia (Feature Importance)")
     importance = feature_importance(package)
+    importance = importance[importance["Variable"] != DISTANCE_TO_METRO_COLUMN]
     if importance.empty:
         st.warning("El modelo no expone feature_importances_.")
     else:
@@ -718,6 +759,8 @@ def render_valuation_results(
         "hist\u00f3ricos del mercado inmobiliario de Madrid. Debe interpretarse como una ayuda a la toma de decisiones "
         "y no como una tasaci\u00f3n oficial."
     )
+
+    render_property_summary_card(context)
 
 
 def render_followup_chat(
