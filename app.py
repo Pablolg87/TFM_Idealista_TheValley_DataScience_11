@@ -671,33 +671,41 @@ def format_yes_no(value: Any) -> str:
 
 
 def render_property_summary_card(context: dict[str, Any]) -> None:
-    """Render a summary of the user-provided property characteristics."""
+    """Render a visual summary of the user-provided property characteristics."""
     data = st.session_state.get("valuation_data", {})
-    summary_rows = [
-        ("Barrio", context.get("neighborhood", data.get("neighborhood", "No informado"))),
-        ("Superficie (m?)", f"{float(data.get(AREA_COLUMN, 0)):,.0f}".replace(",", ".")),
-        ("Habitaciones", str(int(data.get(ROOMS_COLUMN, 0)))),
-        ("Ba?os", str(int(data.get(BATHROOMS_COLUMN, 0)))),
-        ("Ascensor", format_yes_no(data.get(HAS_LIFT_COLUMN, 0))),
-        ("Garaje", format_yes_no(data.get(HAS_PARKING_COLUMN, 0))),
-        ("Terraza", format_yes_no(data.get(HAS_TERRACE_COLUMN, 0))),
-        ("Piscina", format_yes_no(data.get(HAS_SWIMMING_POOL_COLUMN, 0))),
-        ("Aire acondicionado", format_yes_no(data.get(HAS_AIR_CONDITIONING_COLUMN, 0))),
-        ("Trastero", format_yes_no(data.get(HAS_BOXROOM_COLUMN, 0))),
+    neighborhood = context.get("neighborhood", data.get("neighborhood", "No informado"))
+    area = f"{float(data.get(AREA_COLUMN, 0)):,.0f}".replace(",", ".") + " m\u00b2"
+    rooms = str(int(data.get(ROOMS_COLUMN, 0)))
+
+    left_items = [
+        ("\U0001f3e2 Ascensor", format_yes_no(data.get(HAS_LIFT_COLUMN, 0))),
+        ("\U0001f6bf Ba\u00f1os", str(int(data.get(BATHROOMS_COLUMN, 0)))),
+    ]
+    right_items = [
+        ("\U0001f697 Garaje", format_yes_no(data.get(HAS_PARKING_COLUMN, 0))),
+        ("\U0001f33f Terraza", format_yes_no(data.get(HAS_TERRACE_COLUMN, 0))),
+        ("\U0001f3ca Piscina", format_yes_no(data.get(HAS_SWIMMING_POOL_COLUMN, 0))),
+        ("\u2744 Aire acondicionado", format_yes_no(data.get(HAS_AIR_CONDITIONING_COLUMN, 0))),
+        ("\U0001f4e6 Trastero", format_yes_no(data.get(HAS_BOXROOM_COLUMN, 0))),
     ]
 
-    st.subheader("?? Resumen de la vivienda analizada")
+    st.subheader("\U0001f4cb Resumen de la vivienda analizada")
     with st.container(border=True):
-        header_col, value_col = st.columns([1, 1])
-        header_col.caption("Caracter?stica")
-        value_col.caption("Valor")
-        for label, value in summary_rows:
-            label_col, data_col = st.columns([1, 1])
-            label_col.write(label)
-            data_col.write(value)
+        kpi_neighborhood, kpi_area, kpi_rooms = st.columns(3)
+        kpi_neighborhood.metric("\U0001f4cd Barrio", str(neighborhood))
+        kpi_area.metric("\U0001f4d0 Superficie", area)
+        kpi_rooms.metric("\U0001f6cf Habitaciones", rooms)
+
+        left_col, right_col = st.columns(2)
+        for column, items in ((left_col, left_items), (right_col, right_items)):
+            with column:
+                for label, value in items:
+                    label_col, value_col = st.columns([1.4, 1])
+                    label_col.write(label)
+                    value_col.markdown(f"**{value}**")
         st.caption(
-            "La valoraci?n se ha realizado considerando las caracter?sticas anteriores y el comportamiento "
-            "hist?rico del mercado inmobiliario en Madrid."
+            "La valoraci\u00f3n se ha realizado considerando las caracter\u00edsticas anteriores y el comportamiento "
+            "hist\u00f3rico del mercado inmobiliario en Madrid."
         )
 
 
@@ -745,6 +753,8 @@ def render_valuation_results(
         with detail_col:
             st.metric("Barrio", context["neighborhood"])
 
+    render_property_summary_card(context)
+
     st.subheader("Variables con mayor influencia (Feature Importance)")
     importance = feature_importance(package)
     importance = importance[importance["Variable"] != DISTANCE_TO_METRO_COLUMN]
@@ -760,7 +770,6 @@ def render_valuation_results(
         "y no como una tasaci\u00f3n oficial."
     )
 
-    render_property_summary_card(context)
 
 
 def render_followup_chat(
