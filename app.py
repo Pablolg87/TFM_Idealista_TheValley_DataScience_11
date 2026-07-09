@@ -719,153 +719,114 @@ def answer_valuation_question(
     intent = detect_vera_intent(question)
     ctx = vera_context(context, package)
     active_amenities_text = format_amenities(ctx["active_amenities"])
-    missing_amenities_text = format_amenities(ctx["missing_amenities"][:3])
+    missing_amenities_text = format_amenities(ctx["missing_amenities"][:4])
     importance_factors = ctx["top_feature_lines"] or ["No hay importancia de variables disponible en el paquete del modelo."]
-    property_summary = f"{ctx['area']:.0f} m\u00b2, {ctx['rooms_text']}, {ctx['bathrooms_text']} y {active_amenities_text}"
+    property_summary = f"{ctx['area']:.0f} m\u00b2, {ctx['rooms_text']} y {ctx['bathrooms_text']}"
+
+    previous_user_questions = [
+        content for role, content in st.session_state.get("followup_messages", [])
+        if role == "user"
+    ]
+    previous_intent = detect_vera_intent(previous_user_questions[-1]) if previous_user_questions else "GENERAL"
+    followup_terms = {"y entonces", "entonces", "cual", "cu\u00e1l", "por que", "por qu\u00e9", "y de amenities", "amenities"}
+    is_followup = normalized_question in followup_terms or (len(normalized_question) <= 18 and previous_user_questions)
+    if is_followup and intent == "GENERAL":
+        if "amenit" in normalized_question:
+            intent = "PROPERTY_IMPROVEMENTS"
+        elif normalized_question in {"cual", "cu\u00e1l"}:
+            intent = "FEATURE_IMPORTANCE"
+        else:
+            intent = previous_intent
 
     if intent == "PRICE_EXPLANATION":
-        return build_vera_response(
-            response=f"Vale {ctx['estimated_price']} porque combina una ubicaci\u00f3n concreta, una superficie determinada y unas caracter\u00edsticas que encajan con el mercado de {ctx['neighborhood']}.",
-            why=f"Analizando esta vivienda, el primer punto es el barrio: {ctx['neighborhood']} tiene una referencia de {ctx['average_unit_price']}. Despu\u00e9s pesa el producto: {property_summary}. Seg\u00fan la importancia de variables, {ctx['top_features_text']} son los factores que m\u00e1s ayudan a entender esta valoraci\u00f3n.",
-            factors=[
-                f"**Precio estimado:** {ctx['estimated_price']} ({ctx['estimated_unit_price']}).",
-                f"**Barrio:** {ctx['neighborhood']}, con precio medio de {ctx['average_price']} y {ctx['average_unit_price']}.",
-                f"**Vivienda:** {property_summary}.",
-                *importance_factors,
-            ],
-            recommendation="Mi interpretaci\u00f3n es que el precio est\u00e1 explicado por la combinaci\u00f3n de mercado de barrio y caracter\u00edsticas de la vivienda, no por un \u00fanico elemento aislado.",
-            intent=intent,
-            question=question,
+        return (
+            f"En esta vivienda, el precio estimado de **{ctx['estimated_price']}** se entiende por la combinaci\u00f3n de "
+            f"**{ctx['neighborhood']}**, la superficie y el equipamiento. No es una lectura de un \u00fanico factor: el barrio "
+            f"marca una referencia de mercado de **{ctx['average_unit_price']}**, y la vivienda aporta {property_summary} "
+            f"con {active_amenities_text}.\n\n"
+            f"Lo que m\u00e1s pesa en la interpretaci\u00f3n es **{ctx['top_features_text']}**. Como asesor, usar\u00eda este valor "
+            "como referencia para comparar inmuebles similares antes de tomar una decisi\u00f3n."
         )
 
     if intent == "FEATURE_IMPORTANCE":
-        return build_vera_response(
-            response=f"Lo que m\u00e1s pesa en esta valoraci\u00f3n es {ctx['top_features_text']}.",
-            why="En lenguaje inmobiliario, esos factores indican qu\u00e9 est\u00e1 diferenciando m\u00e1s esta vivienda frente a otras comparables: tama\u00f1o, referencia de barrio, distribuci\u00f3n o equipamiento. No son nombres t\u00e9cnicos para el usuario; son pistas para saber d\u00f3nde mirar primero.",
-            factors=[*importance_factors, f"**Resumen de la vivienda:** {property_summary}."],
-            recommendation="Si tuviera que priorizar, revisar\u00eda primero esos factores antes de entrar en mejoras secundarias.",
-            intent=intent,
-            question=question,
+        return (
+            "Los factores que m\u00e1s explican esta valoraci\u00f3n son:\n\n"
+            + "\n".join(f"- {factor}" for factor in importance_factors[:4])
+            + "\n\nEn t\u00e9rminos inmobiliarios, primero mirar?a esos elementos antes que detalles secundarios: suelen ser los que mejor explican por qu\u00e9 una vivienda se sit\u00faa en un rango de precio u otro."
         )
 
     if intent == "LOCATION_EXPLANATION":
-        return build_vera_response(
-            response="S\u00ed, la ubicaci\u00f3n influye en esta valoraci\u00f3n.",
-            why=f"En este caso no hablamos de una direcci\u00f3n exacta, sino del contexto de {ctx['neighborhood']}. La distancia al centro ({ctx['distance_to_city_center']:.2f}) y al Paseo de la Castellana ({ctx['distance_to_castellana']:.2f}) ayudan a situar el barrio dentro de Madrid. Esa lectura se combina con el precio medio del barrio ({ctx['average_unit_price']}) y con la vivienda concreta.",
-            factors=[
-                f"**Barrio:** {ctx['neighborhood']}.",
-                f"**Precio medio del barrio:** {ctx['average_price']} ({ctx['average_unit_price']}).",
-                f"**Distancia al centro:** {ctx['distance_to_city_center']:.2f}.",
-                f"**Distancia al Paseo de la Castellana:** {ctx['distance_to_castellana']:.2f}.",
-                *importance_factors,
-            ],
-            recommendation="Desde un punto de vista inmobiliario, la ubicaci\u00f3n aporta contexto de mercado, pero el precio final se entiende junto con superficie, distribuci\u00f3n y amenities.",
-            intent=intent,
-            question=question,
+        return (
+            f"S\u00ed, la ubicaci\u00f3n influye. En este caso, **{ctx['neighborhood']}** aporta el contexto de mercado: "
+            f"precio medio del barrio, distancia al centro y distancia al eje de Castellana.\n\n"
+            f"Para esta valoraci\u00f3n, la referencia del barrio es **{ctx['average_unit_price']}**. Esa informaci\u00f3n ayuda a situar la vivienda dentro de Madrid, pero el resultado final tambi\u00e9n depende de superficie, distribuci\u00f3n y amenities."
         )
 
     if intent == "HYPOTHETICAL_SCENARIO":
         changes = detect_hypothetical_changes(normalized_question)
         if not changes:
             changes = [("Caracter\u00edsticas", "GENERAL", "cambiar\u00edan la comparaci\u00f3n con viviendas similares")]
-        analysis_lines = []
-        factor_lines = [f"**Vivienda actual:** {property_summary}.", f"**Precio actual:** {ctx['estimated_price']} ({ctx['estimated_unit_price']})."]
-        first_change = changes[0][0].lower()
+        lines = []
         for label, feature, explanation in changes:
             translated = translate_model_feature(feature)
-            relevance = feature_relevance(ctx, translated) if feature != "REFORM" else "La reforma no est\u00e1 medida directamente; se reflejar\u00eda de forma indirecta en c\u00f3mo se percibe la vivienda."
-            analysis_lines.append(f"- **{label}:** {explanation}. {relevance}")
-            factor_lines.append(f"**{label}:** {explanation}.")
-        return build_vera_response(
-            response=f"S\u00ed, a\u00f1adir {first_change} probablemente mejorar\u00eda el atractivo de la vivienda; lo que no ser\u00eda correcto es inventar un nuevo precio sin recalcular.",
-            why="Para esta vivienda concreta, el efecto se leer\u00eda as\u00ed:\n" + "\n".join(analysis_lines),
-            factors=[*factor_lines, *importance_factors],
-            recommendation="Mi recomendaci\u00f3n ser\u00eda crear una nueva valoraci\u00f3n con esas caracter\u00edsticas para cuantificar el impacto de forma defendible.",
-            intent=intent,
-            question=question,
+            if feature == "REFORM":
+                relevance = "La reforma no est\u00e1 medida directamente por el modelo, pero puede cambiar mucho la percepci\u00f3n comercial."
+            else:
+                relevance = feature_relevance(ctx, translated)
+            lines.append(f"- **{label}:** {explanation}. {relevance}")
+        return (
+            "S\u00ed, ese cambio probablemente modificar\u00eda el atractivo comercial de la vivienda, pero no ser\u00eda profesional inventar un nuevo precio sin recalcular.\n\n"
+            + "\n".join(lines)
+            + "\n\nPara cuantificarlo, ejecutar?a una nueva valoraci\u00f3n con esas caracter\u00edsticas incorporadas."
         )
 
     if intent == "PROPERTY_IMPROVEMENTS":
-        return build_vera_response(
-            response=f"La mejora m\u00e1s interesante ser\u00eda la que refuerce {ctx['top_features_text']} o compense amenities ausentes como {missing_amenities_text}.",
-            why=f"Si tuviera que priorizar, no elegir\u00eda una mejora solo por intuici\u00f3n. Mirar\u00eda qu\u00e9 est\u00e1 pesando en esta valoraci\u00f3n y qu\u00e9 puede percibir claramente un comprador en {ctx['neighborhood']}. Una mejora \u00fatil debe aumentar atractivo comercial y, adem\u00e1s, estar conectada con factores que VERA considera relevantes.",
-            factors=[
-                f"**Amenities presentes:** {active_amenities_text}.",
-                f"**Amenities ausentes:** {missing_amenities_text}.",
-                f"**Precio actual:** {ctx['estimated_price']}.",
-                *importance_factors,
-            ],
-            recommendation="Mi recomendaci\u00f3n ser\u00eda empezar por la mejora m\u00e1s visible para el comprador y despu\u00e9s recalcular para medir impacto.",
-            intent=intent,
-            question=question,
+        if ctx["missing_amenities"]:
+            return (
+                f"Si tuviera que priorizar, revisar\u00eda primero las amenities ausentes: **{missing_amenities_text}**. "
+                "No todas tienen el mismo efecto, pero son elementos que un comprador entiende r\u00e1pido y que pueden ayudar a diferenciar la vivienda.\n\n"
+                f"Aun as\u00ed, en esta valoraci\u00f3n siguen pesando mucho **{ctx['top_features_text']}**. Mi recomendaci\u00f3n ser\u00eda probar una nueva valoraci\u00f3n solo con las mejoras que sean realistas."
+            )
+        return (
+            "La vivienda ya incorpora las amenities principales del MVP. En ese caso, no centrar\u00eda el an\u00e1lisis en a\u00f1adir equipamiento, sino en compararla bien con viviendas similares del barrio."
         )
 
     if intent == "INVESTMENT":
-        return build_vera_response(
-            response="No responder\u00eda con un s\u00ed o no cerrado: la analizar\u00eda como una posible compra, pero con comprobaciones previas.",
-            why=f"En este caso tienes una referencia objetiva: {ctx['estimated_price']} y {ctx['estimated_unit_price']}. El barrio aporta una media de {ctx['average_unit_price']}, y la vivienda ofrece {property_summary}. La oportunidad depender\u00e1 de si el precio final, el estado real y los comparables recientes confirman esta lectura.",
-            factors=[
-                f"**Precio estimado:** {ctx['estimated_price']}.",
-                f"**Precio por m\u00b2:** {ctx['estimated_unit_price']} frente a {ctx['average_unit_price']} del barrio.",
-                f"**Vivienda:** {property_summary}.",
-                *importance_factors,
-            ],
-            recommendation="Mi recomendaci\u00f3n ser\u00eda usar esta valoraci\u00f3n para negociar, pero decidir despu\u00e9s de revisar estado, gastos y comparables reales.",
-            intent=intent,
-            question=question,
+        return (
+            "No lo responder\u00eda con un s\u00ed o no cerrado. Como asesor, lo tratar\u00eda como una posible operaci\u00f3n que necesita contraste con comparables, estado real y margen de negociaci\u00f3n.\n\n"
+            f"La referencia de partida es **{ctx['estimated_price']}** y **{ctx['estimated_unit_price']}** en **{ctx['neighborhood']}**. Si el inmueble real confirma buen estado y encaja con precios comparables, la valoraci\u00f3n puede servir como buena base para negociar."
         )
 
     if intent == "MODEL_LIMITATIONS":
-        return build_vera_response(
-            response="La estimaci\u00f3n es \u00fatil, pero no sustituye una visita ni una tasaci\u00f3n oficial.",
-            why="VERA s\u00ed considera barrio, superficie, habitaciones, ba\u00f1os, amenities y mercado hist\u00f3rico. Lo que no puede observar es estado real, orientaci\u00f3n, reformas, luminosidad, ruido, vistas o capacidad de negociaci\u00f3n. Esos elementos pueden cambiar mucho la decisi\u00f3n final.",
-            factors=[
-                "**S\u00ed considera:** barrio, superficie, habitaciones, ba\u00f1os, amenities y mercado hist\u00f3rico.",
-                "**No observa:** estado real, orientaci\u00f3n, reformas, luminosidad, ruido, vistas ni negociaci\u00f3n.",
-                f"**Resultado actual:** {ctx['estimated_price']} ({ctx['estimated_unit_price']}).",
-            ],
-            recommendation="Mi recomendaci\u00f3n ser\u00eda usar VERA como punto de partida y validar en visita todo lo que el modelo no puede ver.",
-            intent=intent,
-            question=question,
+        return (
+            "La estimaci\u00f3n es \u00fatil como referencia, pero no sustituye una visita ni una tasaci\u00f3n oficial.\n\n"
+            "VERA considera barrio, superficie, habitaciones, ba\u00f1os, amenities y mercado hist\u00f3rico. No puede ver estado real, orientaci\u00f3n, reformas, luminosidad, ruido, vistas ni capacidad de negociaci\u00f3n. Esos puntos conviene validarlos antes de decidir."
         )
 
     if intent == "NEIGHBOURHOOD":
-        return build_vera_response(
-            response=f"S\u00ed, el barrio influye mucho: {ctx['neighborhood']} marca la referencia de mercado de esta vivienda.",
-            why=f"El precio medio del barrio es {ctx['average_price']} y el precio medio por m\u00b2 es {ctx['average_unit_price']}. Eso contextualiza si una vivienda de {ctx['area']:.0f} m\u00b2, con {ctx['rooms_text']} y {ctx['bathrooms_text']}, est\u00e1 entrando en un rango razonable.",
-            factors=[
-                f"**Barrio:** {ctx['neighborhood']}.",
-                f"**Precio medio:** {ctx['average_price']}.",
-                f"**Precio medio por m\u00b2:** {ctx['average_unit_price']}.",
-                *importance_factors,
-            ],
-            recommendation="Mi recomendaci\u00f3n ser\u00eda comparar siempre esta vivienda con su barrio, no con Madrid en abstracto.",
-            intent=intent,
-            question=question,
+        return (
+            f"El barrio importa mucho: **{ctx['neighborhood']}** marca la referencia local con un precio medio de **{ctx['average_price']}** y **{ctx['average_unit_price']}**.\n\n"
+            "Por eso no comparar?a esta vivienda con Madrid en abstracto, sino con alternativas similares dentro del mismo entorno o en barrios equivalentes."
         )
 
     if intent == "MODEL_EXPLANATION":
-        return build_vera_response(
-            response="VERA utiliza el modelo como apoyo para leer la vivienda frente al mercado hist\u00f3rico de Madrid.",
-            why=f"En esta valoraci\u00f3n se combinan el contexto de {ctx['neighborhood']}, el precio medio del barrio y las caracter\u00edsticas del inmueble: {property_summary}. El resultado no sale de una \u00fanica variable, sino de c\u00f3mo se relacionan esos factores con viviendas comparables.",
-            factors=[
-                f"**Precio estimado:** {ctx['estimated_price']}.",
-                f"**Referencia del barrio:** {ctx['average_unit_price']}.",
-                *importance_factors,
-            ],
-            recommendation="Lo usar\u00eda como una br\u00fajula profesional: orienta muy bien, pero debe complementarse con visita y comparables.",
-            intent=intent,
-            question=question,
+        return (
+            "VERA usa el modelo como una herramienta de apoyo para leer la vivienda frente al mercado hist\u00f3rico de Madrid.\n\n"
+            f"En esta valoraci\u00f3n combina el contexto de **{ctx['neighborhood']}**, el precio medio del barrio y las caracter\u00edsticas del inmueble. Yo lo usar\u00eda como una br\u00fajula profesional, no como una tasaci\u00f3n cerrada."
         )
 
-    return build_vera_response(
-        response=f"Puedo ayudarte a interpretar esta valoraci\u00f3n de {ctx['estimated_price']} desde un \u00e1ngulo inmobiliario concreto.",
-        why=f"Tengo en cuenta que la vivienda est\u00e1 en {ctx['neighborhood']}, tiene {property_summary} y se compara con un barrio de referencia {ctx['average_unit_price']}. A partir de ah\u00ed puedo analizar precio, barrio, mejoras, compra o limitaciones.",
-        factors=[*importance_factors, f"**Barrio:** {ctx['neighborhood']} ({ctx['average_unit_price']})."],
-        recommendation="Dime qu\u00e9 decisi\u00f3n quieres tomar y lo analizamos como lo har\u00eda un asesor inmobiliario.",
-        intent=intent,
-        question=question,
+    if is_followup:
+        return (
+            f"Siguiendo con la idea anterior, lo m\u00e1s importante aqu\u00ed es no perder de vista **{ctx['top_features_text']}**. "
+            f"Para esta vivienda en **{ctx['neighborhood']}**, esos factores explican mejor el resultado que un detalle aislado.\n\n"
+            "Si quieres, puedo centrarme en precio, ubicaci?n, amenities o limitaciones del modelo."
+        )
+
+    return (
+        f"Puedo ayudarte a interpretar la valoraci\u00f3n de **{ctx['estimated_price']}** desde un punto de vista inmobiliario. "
+        "Para darte una respuesta m\u00e1s precisa, preg\u00fantame por precio, barrio, amenities, mejoras o limitaciones del modelo."
     )
+
 def initialize_valuation_state() -> None:
     """Initialize session state for the conversational valuation flow."""
     st.session_state.setdefault("valuation_step", 0)
@@ -1092,30 +1053,19 @@ def render_current_conversation_step(neighborhoods: list[str]) -> None:
 def render_vera_valuation_recommendation(package: dict[str, Any], context: dict[str, Any]) -> None:
     """Render VERA's executive interpretation of the completed valuation."""
     ctx = vera_context(context, package)
-    active_amenities = format_amenities(ctx["active_amenities"])
-    missing_amenities = ctx["missing_amenities"]
-    missing_priority = [amenity for amenity in ["garaje", "terraza", "piscina", "aire acondicionado"] if amenity in missing_amenities]
 
     def interpret_feature(label: str, importance: float, position: int) -> str:
         percent = round(float(importance) * 100)
         prefix = f"**{label} ({percent}%)**"
         if label == "Superficie construida":
-            return f"{prefix}: es el principal factor que explica la valoraci\u00f3n obtenida, porque condiciona directamente el tama\u00f1o del producto inmobiliario."
+            return f"{prefix}: es el principal factor que explica la valoraci\u00f3n, porque define el tama\u00f1o real del producto inmobiliario."
         if label == "Precio medio del barrio":
-            return f"{prefix}: sit\u00faa la vivienda dentro del contexto del mercado local de {ctx['neighborhood']} y tiene una influencia muy elevada."
-        if label == "Ascensor":
-            return f"{prefix}: aporta valor adicional y mejora la accesibilidad, aunque su impacto suele ser menor que superficie y barrio."
-        if label in {"Garaje", "Terraza", "Piscina", "Aire acondicionado", "Trastero"}:
-            return f"{prefix}: complementa la valoraci\u00f3n como amenity diferencial, con un peso secundario frente a superficie y ubicaci\u00f3n."
-        if label == "Habitaciones":
-            return f"{prefix}: ayuda a interpretar la funcionalidad de la vivienda y el perfil de comprador al que puede encajar."
-        if label == "Ba\u00f1os":
-            return f"{prefix}: influye en la comodidad percibida, especialmente al comparar viviendas de tama\u00f1o similar."
-        if label in {"Distancia al centro", "Distancia al Paseo de la Castellana"}:
-            return f"{prefix}: refleja el posicionamiento del barrio dentro de Madrid y ayuda a contextualizar el precio."
+            return f"{prefix}: sit\u00faa la vivienda dentro del contexto de mercado de {ctx['neighborhood']}."
+        if label in {"Garaje", "Terraza", "Piscina", "Aire acondicionado", "Trastero", "Ascensor"}:
+            return f"{prefix}: aporta lectura comercial adicional, aunque normalmente pesa menos que superficie y barrio."
         if position == 0:
-            return f"{prefix}: es el factor con mayor influencia en esta lectura del modelo."
-        return f"{prefix}: contribuye a ajustar la estimaci\u00f3n frente a viviendas comparables."
+            return f"{prefix}: es el factor con mayor influencia en esta estimaci\u00f3n."
+        return f"{prefix}: ayuda a ajustar la comparaci\u00f3n frente a viviendas similares."
 
     interpreted_features = [
         interpret_feature(item["label"], item["importance"], index)
@@ -1127,49 +1077,21 @@ def render_vera_valuation_recommendation(package: dict[str, Any], context: dict[
 
         st.markdown("## \U0001f3e0 Valoraci\u00f3n general")
         st.write(
-            f"La vivienda presenta una valoraci\u00f3n coherente con las caracter\u00edsticas introducidas y con el "
-            f"comportamiento hist\u00f3rico del mercado de **{ctx['neighborhood']}**. El resultado estimado es "
-            f"**{ctx['estimated_price']}** (**{ctx['estimated_unit_price']}**) para una vivienda de "
-            f"**{ctx['area']:.0f} m\u00b2**, {ctx['rooms_text']} y {ctx['bathrooms_text']}, con {active_amenities}."
+            f"La estimaci\u00f3n obtenida encaja con una lectura de mercado para **{ctx['neighborhood']}**. "
+            "VERA interpreta el resultado como una referencia profesional para comparar la vivienda con inmuebles similares, no como una tasaci\u00f3n oficial."
         )
 
-        st.markdown("## \U0001f4ca Factores m\u00e1s relevantes")
+        st.markdown("## \U0001f4ca Factores clave")
         if interpreted_features:
-            st.write("VERA interpreta los factores principales del modelo en clave inmobiliaria:")
             for line in interpreted_features:
                 st.markdown(f"- {line}")
         else:
             st.write("No hay informaci\u00f3n de importancia de variables disponible para interpretar el resultado.")
 
-        st.markdown("## \U0001f4a1 Posibles mejoras")
-        if missing_priority:
-            first_improvement = missing_priority[0]
-            st.write(
-                f"Si tuviera que priorizar una mejora, comenzar\u00eda por **{first_improvement}**, porque es una "
-                "caracter\u00edstica f\u00e1cil de percibir por el comprador y puede ayudar a diferenciar la vivienda "
-                "frente a alternativas similares."
-            )
-            if len(missing_priority) > 1:
-                st.write(
-                    f"Despu\u00e9s revisar\u00eda {format_amenities(missing_priority[1:])}. No asumir\u00eda una subida de precio: "
-                    "para medir el impacto econ\u00f3mico habr\u00eda que ejecutar una nueva valoraci\u00f3n con esas mejoras."
-                )
-        elif missing_amenities:
-            st.write(
-                f"La vivienda ya cubre las amenities principales. Las ausencias restantes ({format_amenities(missing_amenities)}) "
-                "podr\u00edan tener un efecto secundario, pero no parecen el primer punto de decisi\u00f3n frente a superficie, barrio y precio."
-            )
-        else:
-            st.write(
-                "La vivienda incorpora todas las amenities consideradas por el MVP. En este caso centrar\u00eda el an\u00e1lisis "
-                "en precio, superficie, distribuci\u00f3n y comparables reales del barrio."
-            )
-
         st.markdown("## \u2705 Recomendaci\u00f3n de VERA")
         st.write(
-            f"Si estuviera asesorando una operaci\u00f3n de compra o venta en **{ctx['neighborhood']}**, usar\u00eda esta "
-            "valoraci\u00f3n como referencia inicial y la contrastar\u00eda con viviendas similares del barrio. Desde el "
-            "punto de vista del modelo, cualquier mejora relevante deber\u00eda recalcularse antes de defender un nuevo precio."
+            f"Si estuviera asesorando esta operaci\u00f3n, usar\u00eda la valoraci\u00f3n como punto de partida y revisar\u00eda comparables reales en **{ctx['neighborhood']}**. "
+            "El criterio clave es confirmar si precio, superficie, distribuci\u00f3n y amenities mantienen coherencia con viviendas similares del entorno."
         )
 
 def render_valuation_results(
@@ -1227,7 +1149,6 @@ def render_followup_chat(
         "Ya tengo el contexto completo de la vivienda que acabas de valorar y puedo ayudarte a leer el resultado como lo har\u00eda un asesor.\n\n"
         "Puedes preguntarme, por ejemplo:\n\n"
         "\u2022 \U0001f4b6 \u00bfPor qu\u00e9 la vivienda tiene ese precio?\n"
-        "\u2022 \U0001f3e1 \u00bfQu\u00e9 mejorar\u00edas antes de vender?\n"
         "\u2022 \U0001f4c8 \u00bfQu\u00e9 pasar\u00eda si tuviera piscina o garaje?\n"
         "\u2022 \U0001f4cd \u00bfC\u00f3mo influye la ubicaci\u00f3n?\n"
         "\u2022 \U0001f4ca \u00bfQu\u00e9 pesa m\u00e1s en esta valoraci\u00f3n?\n"
@@ -1454,10 +1375,10 @@ def render_horizontal_comparison_chart(comparison: pd.DataFrame) -> None:
 
 
 def render_executive_summary(comparison: pd.DataFrame) -> None:
-    """Render the executive conclusion as native Streamlit components."""
+    """Render VERA's executive conclusion as native Streamlit components."""
     summary = build_comparison_summary(comparison)
     with st.container(border=True):
-        st.subheader("\U0001f3c6 Resumen ejecutivo")
+        st.subheader("\U0001f9e0 Recomendaci\u00f3n de VERA")
         c1, c2 = st.columns(2)
         c1.metric("\U0001f4b6 Barrio m\u00e1s econ\u00f3mico", summary["Barrio m\u00e1s econ\u00f3mico"])
         c2.metric("\U0001f4c8 Mayor precio por m\u00b2", summary["Barrio con mayor precio por m\u00b2"])
@@ -1466,8 +1387,11 @@ def render_executive_summary(comparison: pd.DataFrame) -> None:
         c3.metric("\U0001f687 Mejor comunicado", summary["Barrio mejor comunicado"])
         c4.metric("\u2728 M\u00e1s amenities", summary["Barrio con m\u00e1s amenities"])
 
-        st.info(f"\U0001f3af {summary['Recomendaci\u00f3n final']}")
-
+        st.info(
+            "VERA interpreta estos indicadores como una primera lectura de mercado: el precio medio ayuda a entender el esfuerzo de compra, "
+            "el precio por m\u00b2 permite comparar intensidad de valor, la comunicaci\u00f3n orienta la comodidad diaria y las amenities muestran el nivel de equipamiento medio. "
+            "Antes de analizar oportunidades de inversi\u00f3n, usar\u00eda esta comparaci\u00f3n para decidir qu\u00e9 barrio encaja mejor con el perfil del comprador."
+        )
 
 def render_comparison_dashboard(comparison: pd.DataFrame) -> None:
     """Render comparison output as an executive dashboard."""
@@ -1659,21 +1583,39 @@ def render_investment_card(row: pd.Series, position: int, priority: str) -> None
 
 
 def render_investment_score_chart(ranking: pd.DataFrame) -> None:
-    """Render a simple horizontal bar chart with the top five opportunity scores."""
+    """Render a polished horizontal bar chart with the top five opportunity scores."""
     top_five = ranking.head(5).copy()
-    chart = (
+    colors = ["#6CB33F", "#7BC653", "#8CCF66", "#A7DB86", "#C4E8A8"]
+    top_five["Color"] = colors[: len(top_five)]
+    top_five["Score label"] = top_five["Score simple de oportunidad"].map(lambda value: f"{float(value):.2f}")
+
+    bars = (
         alt.Chart(top_five)
-        .mark_bar()
+        .mark_bar(cornerRadiusEnd=6)
         .encode(
-            x=alt.X("Score simple de oportunidad:Q", title="Score de oportunidad"),
-            y=alt.Y("Barrio:N", title=None, sort="-x"),
+            x=alt.X(
+                "Score simple de oportunidad:Q",
+                title="Score de oportunidad",
+                scale=alt.Scale(domain=[0, 100]),
+                axis=alt.Axis(grid=False),
+            ),
+            y=alt.Y("Barrio:N", title=None, sort=list(top_five["Barrio"])),
+            color=alt.Color("Color:N", scale=None, legend=None),
             tooltip=["Barrio:N", "Score simple de oportunidad:Q"],
         )
-        .properties(height=260)
     )
+    labels = (
+        alt.Chart(top_five)
+        .mark_text(align="left", baseline="middle", dx=8, color="#222222", fontWeight="bold")
+        .encode(
+            x="Score simple de oportunidad:Q",
+            y=alt.Y("Barrio:N", title=None, sort=list(top_five["Barrio"])),
+            text="Score label:N",
+        )
+    )
+    chart = (bars + labels).properties(height=260).configure_view(strokeWidth=0)
     st.subheader("Score de oportunidad Top 5")
     st.altair_chart(chart, width="stretch")
-
 
 def investment_map_data(dataset: pd.DataFrame, ranking: pd.DataFrame) -> pd.DataFrame:
     """Build neighborhood mean coordinates for the recommended ranking."""
@@ -1744,43 +1686,26 @@ def render_ai_investment_advisor(ranking: pd.DataFrame, priority: str) -> None:
 
     with st.container(border=True):
         st.subheader("\U0001f9e0 Recomendaci\u00f3n de VERA")
+        st.markdown("**Barrio recomendado**")
+        st.metric(str(top["Barrio"]), f"Score {score:.2f}")
 
-        st.markdown("## \U0001f3c6 Barrio recomendado")
-        st.metric("Barrio recomendado", str(top["Barrio"]))
-        st.metric("Score de oportunidad", f"{score:.2f}")
-
-        st.markdown("## \U0001f4c8 \u00bfPor qu\u00e9?")
+        st.markdown("**Interpretaci\u00f3n**")
         st.write(
-            f"Para un presupuesto de **{budget_text}** y una prioridad de **{priority}**, **{top['Barrio']}** "
-            "destaca por el equilibrio entre lo que cuesta comprar, lo que ofrece el barrio y la accesibilidad disponible. "
-            f"No gana solo por precio: combina un precio medio de **{format_euros(float(top['Precio_medio']))}**, "
-            f"un precio medio de **{format_euros_per_m2(float(top['EUR_m2_medio']))}**, "
-            f"amenities medias del **{float(top['Amenities']):.1f} %**, una distancia media al metro de "
-            f"**{float(top['Distancia_metro']):.2f}** y un score final de **{score:.2f}**."
+            f"Para un presupuesto de **{budget_text}** y una prioridad de **{priority}**, **{top['Barrio']}** aparece como la zona m\u00e1s equilibrada del ranking. "
+            f"Combina un precio medio de **{format_euros(float(top['Precio_medio']))}**, **{format_euros_per_m2(float(top['EUR_m2_medio']))}**, "
+            f"amenities medias del **{float(top['Amenities']):.1f} %**, una distancia media al metro de **{float(top['Distancia_metro']):.2f}** y un score de **{score:.2f}**. "
+            "La lectura no es que sea la opci\u00f3n m\u00e1s barata, sino la que mejor balance ofrece dentro de los criterios introducidos."
         )
 
-        st.markdown("## \U0001f50d C\u00f3mo interpretar el resultado")
-        interpretation = (
-            "El ranking no intenta recomendar simplemente el barrio m\u00e1s caro ni el m\u00e1s barato. Busca un equilibrio "
-            "entre presupuesto, precio medio, precio por m\u00b2, caracter\u00edsticas medias, accesibilidad, amenities y volumen "
-            "de muestra seg\u00fan el algoritmo del MVP. El resto del Top 5 tambi\u00e9n representa alternativas muy interesantes "
-            "y conviene compararlas antes de tomar una decisi\u00f3n definitiva."
-        )
-        if len(alternatives) >= 3:
-            interpretation += f" Como alternativas destacadas, revisar\u00eda tambi\u00e9n **{alternatives[1]}** y **{alternatives[2]}**."
-        st.write(interpretation)
-
-        st.markdown("## \u2705 Recomendaci\u00f3n de VERA")
+        st.markdown("**Recomendaci\u00f3n**")
         if len(alternatives) >= 3:
             st.write(
-                f"Si estuviera asesorando una b\u00fasqueda inmobiliaria, comenzar\u00eda visitando viviendas en **{top['Barrio']}** "
-                f"y despu\u00e9s comparar\u00eda **{alternatives[1]}** y **{alternatives[2]}** para confirmar qu\u00e9 zona ofrece "
-                "la mejor relaci\u00f3n entre precio, caracter\u00edsticas y preferencias reales del comprador."
+                f"Usar\u00eda este resultado para empezar la b\u00fasqueda en **{top['Barrio']}** y contrastarla con **{alternatives[1]}** y **{alternatives[2]}**. "
+                "La decisi\u00f3n final deber\u00eda salir de comparar viviendas concretas, no solo de elegir el primer barrio del ranking."
             )
         else:
             st.write(
-                f"Si estuviera asesorando una b\u00fasqueda inmobiliaria, empezar\u00eda por **{top['Barrio']}** y usar\u00eda "
-                "el ranking como gu\u00eda para validar si el barrio encaja con las necesidades reales del comprador."
+                f"Usar\u00eda este resultado para empezar la b\u00fasqueda en **{top['Barrio']}** y validar con viviendas concretas si encaja con el comprador."
             )
 
 def initialize_investment_state() -> None:
@@ -1978,16 +1903,14 @@ def render_sidebar(package: dict[str, Any]) -> None:
 def render_footer() -> None:
     """Render the final academic project footer once."""
     st.divider()
-    st.caption("Developed by")
-    st.caption("Pablo Gonz\u00e1lez Dom\u00ednguez")
-    st.caption("Pablo Jos\u00e9 Lozano Garnacho")
-    st.caption("Clara Mafalda Pedrajas V\u00e1zquez")
-    st.caption("Flavia Ram\u00edrez Plantamor")
-    st.caption("Final Master's Project (TFM)")
-    st.caption("Master in Data Science & Machine Learning with Artificial Intelligence")
-    st.caption("The Valley Business & Tech School")
-    st.caption("Academic Year 2025\u20132026")
-
+    st.caption(
+        "Developed by: Pablo Gonz\u00e1lez Dom\u00ednguez \u00b7 Pablo Jos\u00e9 Lozano Garnacho \u00b7 "
+        "Clara Mafalda Pedrajas V\u00e1zquez \u00b7 Flavia Ram\u00edrez Plantamor"
+    )
+    st.caption(
+        "TFM | Master in Data Science & Machine Learning with Artificial Intelligence | "
+        "The Valley Business & Tech School | Academic Year 2025\u20132026"
+    )
 
 def main() -> None:
     """Run the definitive MVP app."""
